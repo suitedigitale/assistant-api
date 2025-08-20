@@ -1,9 +1,9 @@
-// api/assistant.mjs  (ESM + body parser manuale)
+// api/assistant.mjs  (ESM + body parser manuale, Responses API con "input" string)
 import OpenAI from "openai";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// CORS: permette più origini separate da virgola in CORS_ORIGIN
+// CORS: consenti più origini in CORS_ORIGIN (separate da virgola)
 function setCors(req, res) {
   const allowList = (process.env.CORS_ORIGIN || "*")
     .split(",")
@@ -11,7 +11,8 @@ function setCors(req, res) {
   const origin = req.headers.origin;
   const allow = allowList.includes("*")
     ? "*"
-    : (allowList.includes(origin) ? origin : allowList[0] || "*");
+    : (allowList.includes(origin) ? origin : "*"); // fallback sicuro
+
   res.setHeader("Access-Control-Allow-Origin", allow);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -38,19 +39,14 @@ export default async function handler(req, res) {
   try {
     const { mode, prompt } = await readJsonBody(req);
 
-    const response = await client.responses.create({
+    // >>> CAMBIO: uso "instructions" + "input" string <<<
+    const resp = await client.responses.create({
       model: "gpt-4o-mini",
-      input: [
-        { role: "system", content: [{ type: "text", text: "Scrivi in italiano. Tono professionale e chiaro. Usa paragrafi e liste dove utile." }]},
-        { role: "user",   content: [{ type: "text", text: prompt || "" }]}
-      ],
-      max_output_tokens: 700
+      instructions: "Scrivi in italiano. Tono professionale e chiaro. Usa paragrafi e liste dove utile.",
+      input: prompt || ""
     });
 
-    const text = response.output_text ||
-                 (response.output?.[0]?.content?.[0]?.text?.value) ||
-                 "Non è stato possibile generare una risposta in questo momento.";
-
+    const text = resp.output_text || "Non è stato possibile generare una risposta in questo momento.";
     return res.status(200).json({ ok:true, text, mode: mode || null });
   } catch (err) {
     console.error("Assistant error:", err);
