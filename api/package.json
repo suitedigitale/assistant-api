@@ -1,8 +1,0 @@
-{
-  "name": "assistant-api",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "openai": "^4.55.0"
-  }
-}
