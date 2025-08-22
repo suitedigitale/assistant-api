@@ -1,12 +1,9 @@
-// api/assistant.mjs — tester v3
-
+// /api/assistant.js
 export default async function handler(req, res) {
-  // CORS su ogni risposta (semplice ma efficace per i test)
-  res.setHeader("Vary", "Origin");
+  // CORS molto aperto per il test
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Cache-Control", "no-store");
 
   // Preflight
   if (req.method === "OPTIONS") {
@@ -14,28 +11,17 @@ export default async function handler(req, res) {
     return;
   }
 
-  // GET di prova: deve SEMPRE rispondere così
   if (req.method === "GET") {
-    res.status(200).json({
-      ok: true,
-      message: "assistant alive (GET) v3",
-      method: req.method,
-      ts: Date.now()
-    });
+    res.status(200).json({ ok: true, message: "assistant alive (GET)" });
     return;
   }
 
-  // POST di prova: idem
   if (req.method === "POST") {
-    res.status(200).json({
-      ok: true,
-      message: "assistant alive (POST) v3",
-      method: req.method,
-      ts: Date.now()
-    });
+    let body = {};
+    try { body = req.body || {}; } catch {}
+    res.status(200).json({ ok: true, message: "assistant alive (POST)", body });
     return;
   }
 
-  // Qualsiasi altro metodo
-  res.status(405).json({ ok: false, message: "Method not allowed", method: req.method });
+  res.status(405).json({ ok: false, message: "Method not allowed" });
 }
