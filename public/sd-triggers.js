@@ -1,33 +1,41 @@
-/* sd-triggers.js — mini triggers lato pagina */
 (function () {
-  try {
-    console.log('[SD] sd-triggers.js attivo');
+  // Bottone "Calcola la tua crescita"
+  const SELECTORS_CLICK = ['#calcolaBtn', '[data-cta="calcola"]', 'a[href*="#sdw-open"]'];
+  // Sezione risultati
+  const SELECTORS_RESULTS = ['#kpi-results', '[data-kpi="results"]', '.kpi-results'];
 
-    // 1) Apri chat se clicchi un qualsiasi elemento con [data-sd-open]
-    document.addEventListener('click', (e) => {
-      const t = e.target.closest('[data-sd-open]');
-      if (!t) return;
-      try { window.SuiteAssistantChat?.open({ autostart: true }); } catch (_) {}
-    });
-
-    // 2) Espone un helper per test: quickAsk('ping')
-    window.quickAsk = function (text = 'ping') {
-      try { window.SuiteAssistantChat?.open({ autostart: true }); } catch (_) {}
-      setTimeout(() => {
-        const input = document.getElementById('sdw-input');
-        const send  = document.getElementById('sdw-send');
-        if (input && send) {
-          input.value = String(text);
-          send.click();
-        }
-      }, 200);
-    };
-
-    // 3) (opzionale) Auto-apri se qualcuno setta questa flag
-    if (window.__SD_AUTOSTART === true) {
-      try { window.SuiteAssistantChat?.open({ autostart: true }); } catch (_) {}
-    }
-  } catch (e) {
-    console.warn('[SD] trigger error:', e);
+  function openAndExplain() {
+    if (!window.SuiteAssistantChat) return false;
+    // apre la chat e avvia spiegazione (se i risultati ci sono)
+    window.SuiteAssistantChat.open({ autostart: true, forceExplain: true });
+    return true;
   }
+
+  function initClicks() {
+    SELECTORS_CLICK.forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el && !el.__sdw) {
+        el.__sdw = 1;
+        el.addEventListener('click', () => setTimeout(openAndExplain, 100)); // attendo che la pagina aggiorni i risultati
+      }
+    });
+  }
+
+  function initResultsObserver() {
+    const target = SELECTORS_RESULTS.map(s => document.querySelector(s)).find(Boolean);
+    if (!target || !('IntersectionObserver' in window)) return;
+    let done = false;
+    const io = new IntersectionObserver((entries) => {
+      const e = entries[0];
+      if (!done && e && e.isIntersecting) {
+        done = true; io.disconnect();
+        openAndExplain();
+      }
+    }, { threshold: 0.35 });
+    io.observe(target);
+  }
+
+  function boot() { initClicks(); initResultsObserver(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
