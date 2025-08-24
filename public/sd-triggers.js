@@ -1,56 +1,57 @@
-/* public/sd-triggers.js — apre chat + analizza KPI al click su "Calcola la tua crescita"
-   + fallback su comparsa risultati, + click delegato globale */
+/* public/sd-triggers.js — apre la chat e invia l’auto-messaggio al click su “Calcola la tua crescita” */
 (function () {
-  function waitChat(cb){
-    if (window.SuiteAssistantChat) return cb();
-    setTimeout(()=>waitChat(cb), 250);
+  const SELECTORS_CLICK   = ['#calcolaBtn', '[data-cta="calcola"]', 'a[href*="#sdw-open"]'];
+  const SELECTORS_RESULTS = ['#kpi-results', '[data-kpi="results"]', '.kpi-results'];
+  const AUTO_MSG = 'Analizza i miei KPI (simulati) e dammi una lettura sintetica in 4–6 punti, con suggerimento di prossimi step e invito alla consulenza gratuita.';
+
+  function openAndAsk() {
+    if (!window.SuiteAssistantChat) return false;
+    window.SuiteAssistantChat.open({ autostart: false });
+    setTimeout(() => {
+      const i = document.getElementById('sdw-input');
+      const b = document.getElementById('sdw-send');
+      if (i && b) { i.value = AUTO_MSG; b.click(); }
+    }, 350);
+    return true;
   }
 
-  function byText(tag, txt){
-    const t = txt.toLowerCase();
-    return Array.from(document.querySelectorAll(tag))
-      .find(el => (el.textContent||'').toLowerCase().includes(t));
-  }
-
-  function wire(){
-    // 1) bottone "Calcola la tua crescita"
-    let calc = document.querySelector('#calcolaBtn, [data-cta="calcola"]')
-           || byText('button','calcola la tua crescita')
-           || byText('a','calcola la tua crescita');
-    if (calc && !calc.__sdw) {
-      calc.__sdw = 1;
-      calc.addEventListener('click', ()=>{
-        setTimeout(()=>{ window.SuiteAssistantChat.open({autostart:false}); window.SuiteAssistantChat.analyse(); }, 500);
-      });
-    }
-
-    // 2) observer risultati (ROI/ROAS presenti)
-    const res = byText('section,div,article','ROI previsionale') || byText('section,div,article','ROAS');
-    if (res && 'IntersectionObserver' in window) {
-      let done = false;
-      const io = new IntersectionObserver((en)=>{
-        if (!done && en[0] && en[0].isIntersecting){
-          done = true; io.disconnect();
-          window.SuiteAssistantChat.open({autostart:false});
-          window.SuiteAssistantChat.analyse();
-        }
-      }, {threshold:0.25});
-      io.observe(res);
-    }
-
-    // 3) click delegato globale: qualunque elemento che contiene "calcola la tua crescita"
-    document.addEventListener('click', (e)=>{
-      const t = (e.target.closest('button, a, [role="button"]') || e.target);
-      const tx = (t.textContent||'').toLowerCase();
-      if(tx.includes('calcola la tua crescita')){
-        setTimeout(()=>{ window.SuiteAssistantChat.open({autostart:false}); window.SuiteAssistantChat.analyse(); }, 500);
+  function initClicks() {
+    SELECTORS_CLICK.forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el && !el.__sdw) {
+        el.__sdw = 1;
+        el.addEventListener('click', openAndAsk);
       }
-    }, true);
+    });
 
-    // 4) MutationObserver: se il DOM cambia ricollega
-    const mo = new MutationObserver(()=>wire());
-    mo.observe(document.body, {subtree:true, childList:true});
+    // fallback: delega globale su elementi cliccabili con testo “calcola la tua crescita”
+    document.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button, a, [role="button"]');
+      if (!btn) return;
+      const txt = (btn.textContent || '').toLowerCase();
+      if (txt.includes('calcola la tua crescita')) openAndAsk();
+    }, true);
   }
 
-  waitChat(wire);
+  function initResultsObserver() {
+    const target = SELECTORS_RESULTS.map(s => document.querySelector(s)).find(Boolean);
+    if (!target || !('IntersectionObserver' in window)) return;
+    let done = false;
+    const io = new IntersectionObserver((entries) => {
+      const e = entries[0];
+      if (!done && e && e.isIntersecting) {
+        done = true; io.disconnect(); openAndAsk();
+      }
+    }, { threshold: 0.25 });
+    io.observe(target);
+  }
+
+  function boot() {
+    if (!window.SuiteAssistantChat) { setTimeout(boot, 300); return; }
+    initClicks();
+    initResultsObserver();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
 })();
