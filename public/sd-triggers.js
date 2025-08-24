@@ -1,52 +1,56 @@
-/* public/sd-triggers.js — apre la chat e lancia l’analisi KPI al click su “Calcola la tua crescita” */
+/* public/sd-triggers.js — apre chat + analizza KPI al click su "Calcola la tua crescita"
+   + fallback su comparsa risultati, + click delegato globale */
 (function () {
-  function byText(tag, text) {
-    const t = text.toLowerCase();
-    return Array.from(document.querySelectorAll(tag)).find(
-      el => (el.textContent || '').toLowerCase().includes(t)
-    );
+  function waitChat(cb){
+    if (window.SuiteAssistantChat) return cb();
+    setTimeout(()=>waitChat(cb), 250);
   }
 
-  function ensure() {
-    if (!window.SuiteAssistantChat) {
-      setTimeout(ensure, 300);
-      return;
-    }
-    wire();
+  function byText(tag, txt){
+    const t = txt.toLowerCase();
+    return Array.from(document.querySelectorAll(tag))
+      .find(el => (el.textContent||'').toLowerCase().includes(t));
   }
 
-  function wire() {
-    // 1) Trova il pulsante "Calcola la tua crescita"
-    let calcBtn =
-      document.querySelector('#calcolaBtn, [data-cta="calcola"]') ||
-      byText('button', 'calcola la tua crescita') ||
-      byText('a', 'calcola la tua crescita');
-
-    if (calcBtn && !calcBtn.__sdw) {
-      calcBtn.__sdw = 1;
-      calcBtn.addEventListener('click', () => {
-        setTimeout(() => {
-          window.SuiteAssistantChat.open({ autostart: false });
-          window.SuiteAssistantChat.analyse();
-        }, 500);
+  function wire(){
+    // 1) bottone "Calcola la tua crescita"
+    let calc = document.querySelector('#calcolaBtn, [data-cta="calcola"]')
+           || byText('button','calcola la tua crescita')
+           || byText('a','calcola la tua crescita');
+    if (calc && !calc.__sdw) {
+      calc.__sdw = 1;
+      calc.addEventListener('click', ()=>{
+        setTimeout(()=>{ window.SuiteAssistantChat.open({autostart:false}); window.SuiteAssistantChat.analyse(); }, 500);
       });
     }
 
-    // 2) Se la sezione risultati entra a viewport, analizza comunque
-    const resultsSel = ['#kpi-results', '.kpi-results', '[data-kpi="results"]'];
-    const target = resultsSel.map(s => document.querySelector(s)).find(Boolean);
-    if (target && 'IntersectionObserver' in window) {
+    // 2) observer risultati (ROI/ROAS presenti)
+    const res = byText('section,div,article','ROI previsionale') || byText('section,div,article','ROAS');
+    if (res && 'IntersectionObserver' in window) {
       let done = false;
-      const io = new IntersectionObserver((entries) => {
-        if (!done && entries[0] && entries[0].isIntersecting) {
+      const io = new IntersectionObserver((en)=>{
+        if (!done && en[0] && en[0].isIntersecting){
           done = true; io.disconnect();
-          window.SuiteAssistantChat.open({ autostart: false });
+          window.SuiteAssistantChat.open({autostart:false});
           window.SuiteAssistantChat.analyse();
         }
-      }, { threshold: 0.25 });
-      io.observe(target);
+      }, {threshold:0.25});
+      io.observe(res);
     }
+
+    // 3) click delegato globale: qualunque elemento che contiene "calcola la tua crescita"
+    document.addEventListener('click', (e)=>{
+      const t = (e.target.closest('button, a, [role="button"]') || e.target);
+      const tx = (t.textContent||'').toLowerCase();
+      if(tx.includes('calcola la tua crescita')){
+        setTimeout(()=>{ window.SuiteAssistantChat.open({autostart:false}); window.SuiteAssistantChat.analyse(); }, 500);
+      }
+    }, true);
+
+    // 4) MutationObserver: se il DOM cambia ricollega
+    const mo = new MutationObserver(()=>wire());
+    mo.observe(document.body, {subtree:true, childList:true});
   }
 
-  ensure();
+  waitChat(wire);
 })();
