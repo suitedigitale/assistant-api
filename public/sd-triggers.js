@@ -1,122 +1,117 @@
-(function(){
-  // -------- selettori adattati allo screen --------
-  const SEL = {
-    calcBtn: 'button[id*="calcola"], button[aria-label*="calcola"], [data-cta="calcola"], button:has(span:contains("Calcola la tua crescita"))',
-    resultsRoot: 'section, #kpi-results, [data-kpi="results"], .kpi-results, body'
-  };
+/* public/sd-triggers.js — ascolta “Calcola la tua crescita”, legge i KPI, invia in silenzio */
+(function () {
 
-  // util
-  const $ = (s, root=document) => { try { return root.querySelector(s); } catch { return null; } };
-  const $$ = (s, root=document) => { try { return [...root.querySelectorAll(s)]; } catch { return []; } };
-  const hasNum = (t)=>/\d/.test(t||'');
+  // Trova bottone “Calcola la tua crescita”
+  function findCalculateButton() {
+    const all = Array.from(document.querySelectorAll('button, a'));
+    return all.find(el => /calcola la tua crescita/i.test(el.textContent || ''));
+  }
 
-  const toNumber = (text) => {
-    if (!text) return null;
-    let s = String(text).replace(/\s/g,'');
-    // euro: €1.590  -> 1590
-    s = s.replace(/[€]/g,'');
-    // 0,2x -> 0,2
-    s = s.replace(/x$/i,'');
-    // 1.590 -> 1590
-    s = s.replace(/\.(?=\d{3}\b)/g,'');
-    // virgola -> punto
-    s = s.replace(',', '.');
-    const m = s.match(/-?\d+(\.\d+)?/);
-    return m ? parseFloat(m[0]) : null;
-  };
+  // Utility: numero italiano -> float (accetta “-95,36%”, “€ 1.590”)
+  function itNumber(str) {
+    if (!str) return null;
+    const s = (str+'').replace(/\s/g,'').replace('€','').replace(/[^0-9,.\-]/g,'').replace(/\./g,'').replace(',', '.');
+    const n = parseFloat(s);
+    return isFinite(n) ? n : null;
+  }
 
-  // cerca vicino all'etichetta (fino a 3 livelli di risalita)
-  function findNearValue(labelRegex, valuePattern) {
-    const nodes = $$('*', document);
+  // Cerca una card che contenga label + un valore dentro
+  function readMetric(labelRegex, valuePattern) {
+    const nodes = Array.from(document.querySelectorAll('section,div,li,span,p,article'));
     for (const el of nodes) {
-      const t = el.textContent?.trim() || '';
-      if (!t) continue;
-      if (!labelRegex.test(t)) continue;
-
-      // sale di container e cerca un valore con pattern
-      let box = el;
-      for (let i=0;i<3 && box; i++) box = box.parentElement;
-      const pool = [];
-      if (box) pool.push(...$$('*', box));
-      pool.unshift(el.nextElementSibling, el.parentElement?.nextElementSibling);
-
-      for (const c of pool) {
-        if (!c) continue;
-        const txt = c.textContent?.trim() || '';
-        const m = txt.match(valuePattern);
-        if (m) return toNumber(m[0]);
+      const t = (el.textContent||'').trim();
+      if (labelRegex.test(t)) {
+        const m = t.match(valuePattern);
+        if (m) return itNumber(m[0]);
+        // prova nei discendenti
+        const sub = (Array.from(el.querySelectorAll('*')).map(n=>n.textContent).join(' ')) || '';
+        const m2 = sub.match(valuePattern);
+        if (m2) return itNumber(m2[0]);
       }
     }
     return null;
   }
 
-  function scrapeKpi() {
-    // pattern ad hoc per quei riquadri
-    const ROI   = findNearValue(/ROI\s+previsionale/i, /-?\d+[.,]?\d*\s*%/);
-    const ROAS  = findNearValue(/ROAS\s+stimato/i,  /\d+[.,]?\d*\s*x/i);
-    const BUDG  = findNearValue(/Budget\s+ADV\s+mensile/i, /€?\s*-?\s*\d[\d\.\,]*/);
-    const CPL   = findNearValue(/CPL\s+stimato/i, /€?\s*-?\s*\d[\d\.\,]*/);
-    const FATT  = findNearValue(/Fatturato\s+stimato/i, /€?\s*-?\s*\d[\d\.\,]*/);
-    const APP   = findNearValue(/Appuntamenti\s+di\s+vendita/i, /-?\s*\d+/);
+  // Lettura robusta dei KPI dalle “schede” del simulatore
+  function getKPIsFromPage() {
+    // percentuali
+    const roi   = readMetric(/roi/i,   /-?\d+(?:[.,]\d+)?\s*%/i);
+    const roas  = readMetric(/roas/i,  /-?\d+(?:[.,]\d+)?/i);
+    // euro / importi
+    const budget    = readMetric(/budget\s*adv/i, /(€\s*)?\d[\d\.\,]*/i);
+    const revenue   = readMetric(/fatturato/i,     /(€\s*)?\d[\d\.\,]*/i);
+    const cpl       = readMetric(/\bCPL\b|\bCPL\s*stimato/i, /(€\s*)?\d[\d\.\,]*/i);
+    const cpa       = readMetric(/\bCPA\b|\bCPA\s*stimato/i, /(€\s*)?\d[\d\.\,]*/i);
 
-    const kpi = {};
-    if (ROI  != null) kpi.roi  = ROI;    // percentuale
-    if (ROAS != null) kpi.roas = ROAS;   // x
-    if (BUDG != null) kpi.budget = BUDG; // €
-    if (CPL  != null) kpi.cpl = CPL;     // €
-    if (FATT != null) kpi.revenue = FATT;
-    if (APP  != null) kpi.appointments = APP;
-
-    return kpi;
+    // validi solo se ROI o ROAS presenti
+    const ok = (roi !== null || roas !== null);
+    return ok ? { roi, roas, cpl, cpa, budget, revenue } : null;
   }
 
-  function openChatWithAnalysis() {
-    const kpi = scrapeKpi();
-    window.SuiteAssistantChat?.open();
-
-    // messaggio silenzioso + meta.simulated
-    setTimeout(() => {
-      const msg = 'Questi sono KPI **simulati** ottenuti in base ai parametri inseriti nel configuratore. Forniscimi un’analisi sintetica (4–6 punti) e suggerimenti ad alto livello.';
-      window.SuiteAssistantChat?.ask(msg, { kpi, meta:{ simulated:true }, silent:true });
-    }, 300);
+  // Contesto extra: prova a leggere “settore” e “a chi vendi”
+  function getContextNote() {
+    const nodes = Array.from(document.querySelectorAll('label,div,span,p,button'));
+    const pick = (re) => {
+      const el = nodes.find(n => re.test((n.textContent||'').trim()));
+      if (!el) return null;
+      // prendi qualcosa vicino (es. valore visibile)
+      const sib = el.nextElementSibling || el.parentElement;
+      const txt = sib ? (sib.textContent||'').trim() : '';
+      return txt && txt.length < 120 ? txt : null;
+    };
+    const target = pick(/a chi vendi|tipo business/i);
+    const sector = pick(/settore/i);
+    const list = [];
+    if (target) list.push(`target: ${target}`);
+    if (sector) list.push(`settore: ${sector}`);
+    return list.length ? list.join(' · ') : null;
   }
 
-  // aggancio al click su "Calcola la tua crescita"
-  function wireCalc() {
-    // trova per testo, anche se il bottone non ha id/attr
-    let btn = $(SEL.calcBtn);
-    if (!btn) {
-      btn = $$('button').find(b => /calcola\s+la\s+tua\s+crescita/i.test(b.textContent || ''));
+  // Apri chat e analizza KPI in silenzio
+  function onCalculate() {
+    const k = getKPIsFromPage();
+    if (!k) {
+      // Non forzare: apri chat con benvenuto se KPI non ci sono
+      if (window.SuiteAssistantChat) window.SuiteAssistantChat.open({ autostart:true });
+      return;
     }
-    if (btn && !btn.__sdCalc) {
-      btn.__sdCalc = 1;
-      btn.addEventListener('click', () => {
-        // aspetta che i risultati siano dipinti
-        setTimeout(openChatWithAnalysis, 900);
-      });
+    const note = getContextNote();
+    if (window.SuiteAssistantChat) {
+      window.SuiteAssistantChat.analyseKPIsSilently(k, note);
     }
   }
 
-  // come fallback: quando il box risultati entra in viewport
-  function observeResults() {
-    const root = $(SEL.resultsRoot) || document.body;
-    if (!('IntersectionObserver' in window)) return;
-    let done = false;
-    const io = new IntersectionObserver((entries)=>{
-      if (done) return;
-      const e = entries[0];
-      if (e && e.isIntersecting) { done = true; io.disconnect(); openChatWithAnalysis(); }
-    }, { threshold: .4 });
-    io.observe(root);
+  // Listener sul bottone “Calcola la tua crescita”
+  function wireCalculate() {
+    const btn = findCalculateButton();
+    if (!btn || btn.__sdw) return;
+    btn.__sdw = true;
+    btn.addEventListener('click', () => {
+      // lascia il tempo alla pagina di aggiornare i risultati
+      setTimeout(onCalculate, 250);
+    });
+  }
+
+  // Se l’utente apre la chat senza KPI -> guida alla compilazione
+  function wireOpenBubbleHint() {
+    // bubble definito dallo script chat
+    const bubble = document.getElementById('sdw-bubble');
+    if (!bubble || bubble.__sdw) return;
+    bubble.__sdw = true;
+    bubble.addEventListener('click', () => {
+      // la chat gestisce da sola il messaggio di benvenuto
+    });
   }
 
   function boot() {
-    wireCalc();
-    observeResults();
+    wireCalculate();
+    wireOpenBubbleHint();
+
+    // alcune pagine ricaricano componenti dinamicamente
+    const mo = new MutationObserver(() => wireCalculate());
+    mo.observe(document.documentElement, { childList:true, subtree:true });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
-
-  console.log('[SD] sd-triggers.js pronto');
 })();
