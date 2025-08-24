@@ -1,107 +1,104 @@
-// =========================
-//  Suite Digitale - Triggers
-// =========================
 (function(){
-  const OPEN = () => window.SuiteAssistantChat && window.SuiteAssistantChat.open({ autostart:true });
-  const ASK  = (m) => window.SuiteAssistantChat && window.SuiteAssistantChat.ask(m);
-
-  // Utils per leggere le KPI dalla pagina
-  const txt = (id) => { const el=document.getElementById(id); return el ? el.textContent.trim() : ''; };
-  const num = (id) => {
-    const t = txt(id).replace(/\./g,'').replace(',', '.');
-    const n = parseFloat(t); return isNaN(n) ? null : n;
-  };
-  const vis = (sel) => {
-    const el = document.querySelector(sel);
-    return !!(el && getComputedStyle(el).display !== 'none');
+  // ----- CONFIG SELECTORS: adatta se servono -----
+  const SEL = {
+    calcBtn: 'button[id*="calcola"], button[aria-label*="calcola"], [data-cta="calcola"]',
+    resultsBox: '#kpi-results, [data-kpi="results"], .kpi-results',
+    // Se i KPI sono stampati con label testuali, cerchiamo per testo:
+    roi:  /ROI/i,
+    roas: /ROAS/i,
+    cpl:  /CPL/i,
+    cpa:  /CPA/i,
+    budget:/Budget/i
   };
 
-  // Messaggi dinamici in base alle KPI
-  function kpiMessage(){
-    const roi  = num('roiKPI');
-    const roas = num('roasKPI');
-    const utile = num('utilePerditaKPI');
-    const budget = num('budgetKPI');
-    const fatt = num('fatturatoKPI');
-    const canone = num('canoneSuiteDigitaleKPI');
+  function $(s, root=document){ try { return root.querySelector(s); } catch { return null; } }
+  function $all(s, root=document){ try { return [...root.querySelectorAll(s)]; } catch { return []; } }
 
-    if (roi === null || roas === null || utile === null) {
-      return 'Fammi calcolare i tuoi KPI: premi “Calcola la tua crescita” e ti spiego ROI, ROAS, budget e come migliorare.';
+  const num = (t) => {
+    if (!t) return null;
+    const m = String(t).replace(/\s/g,'').match(/-?\d+[.,]?\d*/);
+    if (!m) return null;
+    return parseFloat(m[0].replace(',', '.'));
+  };
+
+  // Estrae KPI dal box risultati (per etichette testuali tipo "ROI: 95,3%")
+  function scrapeKpi() {
+    const box = $(SEL.resultsBox) || document.body;
+    const textNodes = $all('*', box)
+      .filter(el => el.childElementCount === 0)
+      .map(el => el.textContent.trim())
+      .filter(Boolean);
+
+    const findVal = (regex) => {
+      const t = textNodes.find(t => regex.test(t));
+      if (!t) return null;
+      return num(t);
+    };
+
+    const kpi = {
+      roi:  findVal(SEL.roi),
+      roas: findVal(SEL.roas),
+      cpl:  findVal(SEL.cpl),
+      cpa:  findVal(SEL.cpa),
+      budget: findVal(SEL.budget)
+    };
+
+    // fallbacks percentuali
+    if (kpi.roi == null) {
+      // se troviamo qualcosa tipo "ROI: -94.9%" il num() sopra l’ha già preso
     }
 
-    // Formattazioni semplici
-    const fmt = (n, d=0) => (Number(n||0)).toLocaleString('it-IT',{minimumFractionDigits:d,maximumFractionDigits:d});
-    const euro = (n) => '€ ' + fmt(n, 0);
-
-    if (roi < 0 || utile < 0) {
-      return (
-        'ROI stimato ≈ ' + fmt(roi,2) + '%. La strategia risulta in **perdita**: ogni 100€ investiti ne rientrano meno di 100. ' +
-        'Ti aiuto a rimetterti in rotta rivedendo **budget ADV** (' + euro(budget) + '), **CPL atteso** e **tassi di conversione**. ' +
-        'Suggerisco: abbassa il costo/lead, migliora il tasso lead→appuntamento e aumenta lo scontrino medio. ' +
-        'Prenota la **Consulenza Gratuita**: analizziamo insieme come trasformare la strategia in un percorso scalabile.'
-      );
-    } else {
-      return (
-        'Ottimo! **ROI ≈ ' + fmt(roi,2) + '%** e **ROAS ≈ ' + fmt(roas,1) + 'x**. ' +
-        'Utile mensile stimato: ' + euro(utile) + '. Fatturato: ' + euro(fatt) + '. Budget ADV: ' + euro(budget) +
-        ' + canone servizio ' + euro(canone) + '. ' +
-        'Ti spiego come scalare in sicurezza: mantieni il ROAS sopra soglia, reinveste parte dell’utile e ottimizza funnel/vendite. ' +
-        'Facciamo il punto insieme con la **Consulenza Gratuita**: primo step per impostare il piano di crescita.'
-      );
-    }
+    return kpi;
   }
 
-  // Se l’utente apre la chat senza aver calcolato nulla
-  function noCalcMessage(){
-    return (
-      'Ciao! Per aiutarti davvero mi servono i tuoi parametri. Compila il simulatore (tipo business e settore, clienti mensili, ' +
-      'scontrino medio e margine) poi premi **Calcola la tua crescita**. Ti restituisco ROI/ROAS, budget e i punti da migliorare.'
-    );
+  function openChatWelcome() {
+    window.SuiteAssistantChat?.open({ greet:true });
   }
 
-  // Click sul bottone "Calcola la tua crescita" → apri chat e invia analisi
-  function onCalcClick(){
-    const btn = document.querySelector('#calcolaBtn,[data-cta="calcola"]');
-    if (!btn || btn.__sdw) return;
-    btn.__sdw = 1;
-    btn.addEventListener('click', () => {
-      // aspetta che le KPI compaiano
-      setTimeout(() => {
-        OPEN();
-        setTimeout(() => ASK(kpiMessage()), 250);
-      }, 400);
-    });
+  function openChatWithAnalysis() {
+    const kpi = scrapeKpi();
+    window.SuiteAssistantChat?.open();
+    setTimeout(() => {
+      const msg = kpi && (kpi.roi != null || kpi.roas != null)
+        ? `Analizza questi KPI e dammi una valutazione sintetica in 4-6 punti: ${JSON.stringify(kpi)}`
+        : 'Analizza i miei KPI dal simulatore e fammi un riepilogo con suggerimenti.';
+      window.SuiteAssistantChat?.ask(msg, { kpi });
+    }, 300);
   }
 
-  // Click manuale su elementi che vuoi facciano partire la chat
-  function genericOpeners(){
-    ['a[href*="#sdw-open"]'].forEach(sel => {
-      const el = document.querySelector(sel);
-      if (el && !el.__sdw) {
-        el.__sdw = 1;
-        el.addEventListener('click', e => { e.preventDefault(); OPEN(); });
-      }
-    });
-  }
-
-  // Se l’utente apre la chat senza KPI calcolate (per sicurezza)
-  function greetIfNoResults(){
-    const haveResult = vis('#result') || (document.getElementById('summaryDock') && document.getElementById('summaryDock').getAttribute('aria-hidden')==='false');
-    if (!haveResult) {
-      // appena la chat è pronta, manda il messaggio
-      if (window.SuiteAssistantChat) {
-        setTimeout(() => ASK(noCalcMessage()), 500);
-      }
+  // Click sul pulsante di calcolo → apre chat e chiede analisi
+  function wireCalc() {
+    const btn = $(SEL.calcBtn);
+    if (btn && !btn.__sdCalc) {
+      btn.__sdCalc = 1;
+      btn.addEventListener('click', () => {
+        // aspetta che i risultati compaiano
+        setTimeout(openChatWithAnalysis, 800);
+      });
     }
   }
 
-  function boot(){
-    onCalcClick();
-    genericOpeners();
-    greetIfNoResults();
-    console.log('[SD] sd-triggers.js attivo');
+  // Se il box risultati entra in viewport, apri e analizza (fallback)
+  function observeResults() {
+    const box = $(SEL.resultsBox);
+    if (!box || !('IntersectionObserver' in window)) return;
+    let done = false;
+    const io = new IntersectionObserver((entries)=>{
+      const e = entries[0];
+      if (!done && e && e.isIntersecting) { done = true; io.disconnect(); openChatWithAnalysis(); }
+    }, { threshold: .4 });
+    io.observe(box);
+  }
+
+  function boot() {
+    wireCalc();
+    observeResults();
+    // se l’utente apre dal bubble prima del calcolo
+    // la sd-chat chiama open({greet:true})
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+
+  console.log('[SD] sd-triggers.js pronto');
 })();
