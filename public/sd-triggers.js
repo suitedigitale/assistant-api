@@ -1,147 +1,160 @@
-/* public/sd-triggers.js — lettura KPI ancorata alle etichette + invio silente all’AI */
+/* public/sd-triggers.js — parser KPI ancorato a etichette + invio silente all'AI */
 (function () {
-
-  // Trova il bottone “Calcola la tua crescita”
-  function findCalculateButton() {
-    const all = Array.from(document.querySelectorAll('button, a'));
-    return all.find(el => /calcola la tua crescita/i.test(el.textContent || ''));
-  }
-
-  // Numero IT -> float (gestisce € 1.590, -92,08%, 0,2x)
+  // -------- utils numeri IT --------
   function itNumber(str) {
     if (!str) return null;
-    let s = (str+'').trim();
+    let s = (str + '').trim();
 
-    // rimuovi tutto tranne cifre, segni, separatori, x e %
-    // ma mantieni x e % per pattern successivi
-    // normalizza migliaia/punto, decimali/virgola
-    s = s.replace(/€|\s/g,'').replace(/[^\d.,xX%\-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',', '.');
+    // normalizza: togli €/spazi, conserva segni, decimali, x e %
+    s = s.replace(/€|\s/g, '')
+         .replace(/[^\d.,xX%\-]/g, '')    // tieni solo ciò che serve
+         .replace(/\.(?=\d{3}\b)/g, '')   // 17.125 -> 17125
+         .replace(',', '.');              // 1,90 -> 1.90
 
-    // prendi solo la parte numerica iniziale (es. "0.2x" -> "0.2")
+    // cattura la parte numerica iniziale (0.2, -92.08, ecc.)
     const m = s.match(/^-?\d+(?:\.\d+)?/);
     if (!m) return null;
     const n = parseFloat(m[0]);
-    return isFinite(n) ? n : null;
+    return Number.isFinite(n) ? n : null;
   }
 
-  // Ritorna il PRIMO numero DOPO l’etichetta, nello stesso contenitore
-  function numberRightAfterLabel(containerText, labelRegex, valueRegex) {
-    const txt = (containerText || '').replace(/\s+/g,' ').trim();
-    const mLabel = txt.match(labelRegex);
-    if (!mLabel) return null;
-    const idx = txt.indexOf(mLabel[0]);
-    if (idx < 0) return null;
-    const after = txt.slice(idx + mLabel[0].length);
-    const mVal = after.match(valueRegex);
-    return mVal ? itNumber(mVal[0]) : null;
-  }
+  const RE = {
+    // etichette
+    ROI:   /ROI\b|ROI\s*previsionale/i,
+    ROAS:  /ROAS\b|ROAS\s*stimato/i,
+    BUD:   /Budget\s*ADV\s*mensile/i,
+    REV:   /Fatturato\s*stimato/i,
+    CAN:   /Canone\s*Suite\s*Digitale/i,
+    PROF:  /(Utile|Perdita)\s*mensile/i,
 
-  // Cerca il “contenitore più piccolo” che contiene sia etichetta sia valore
-  function readByLabel(labelRegex, valueRegex) {
-    const nodes = Array.from(document.querySelectorAll('div,section,article,li,p,span'));
-    let best = null;
-    for (const el of nodes) {
-      const t = (el.innerText || '').trim();
-      if (!labelRegex.test(t)) continue;
+    // valori
+    PERC:  /-?\d+(?:[.,]\d+)?\s*%/,           // -92,08%
+    ROASV: /-?\d+(?:[.,]\d+)?\s*(?:x)?/i,     // 0,2x  oppure 3
+    MONEY: /(€\s*)?-?\d[\d.,]*/               // € 17.125 o -18.897
+  };
 
-      // prendi solo contenitori “piccoli” (per evitare wrapper enormi)
-      if (t.length > 600) continue;
+  // piccolo helper: cerca, vicino alla label, il primo elemento con numero valido
+  function nearestNumberNode(labelEl, valueRegex) {
+    if (!labelEl) return null;
 
-      // prova prima nel testo dell’elemento
-      let val = numberRightAfterLabel(t, labelRegex, valueRegex);
+    // 1) stesso nodo
+    let t = (labelEl.innerText || '').trim();
+    let m = t.match(valueRegex);
+    if (m) return itNumber(m[0]);
 
-      // fallback: prova nella stringa del parent immediato
-      if (val == null && el.parentElement) {
-        const pt = (el.parentElement.innerText || '').trim();
-        val = numberRightAfterLabel(pt, labelRegex, valueRegex);
-      }
+    // 2) sibling successivi (prima riga col numero)
+    let sib = labelEl.nextElementSibling;
+    for (let i = 0; i < 5 && sib; i++, sib = sib.nextElementSibling) {
+      const ts = (sib.innerText || '').trim();
+      const mm = ts.match(valueRegex);
+      if (mm) return itNumber(mm[0]);
+    }
 
-      if (val != null) {
-        const score = t.length; // penalizza contenitori grandi
-        if (!best || score < best.score) best = { value: val, score, el };
+    // 3) container più vicino: risali max 4 genitori e cerca dentro
+    let p = labelEl;
+    for (let up = 0; up < 4 && p; up++, p = p.parentElement) {
+      if (!p) break;
+      const all = Array.from(p.querySelectorAll('*'));
+      // scorri elementi nell'ordine: il primo con match vince
+      for (const el of all) {
+        const tx = (el.innerText || '').trim();
+        const mv = tx.match(valueRegex);
+        if (mv) return itNumber(mv[0]);
       }
     }
-    return best ? best.value : null;
+    return null;
   }
 
-  // Legge i KPI agganciandosi alle etichette del simulatore
+  // trova la label (elemento) cercando testo
+  function findLabelElement(labelRegex) {
+    const all = Array.from(document.querySelectorAll('div,section,article,li,p,span,h1,h2,h3,h4,h5,h6,label'));
+    // priorità a elementi più piccoli (evita wrapper enormi)
+    let best = null;
+    for (const el of all) {
+      const txt = (el.innerText || '').trim();
+      if (!txt) continue;
+      if (!labelRegex.test(txt)) continue;
+      const score = txt.length;
+      if (!best || score < best.len) best = { el, len: score };
+    }
+    return best ? best.el : null;
+  }
+
+  // lettura KPI singolo
+  function readKPI(labelRegex, valueRegex) {
+    const el = findLabelElement(labelRegex);
+    return nearestNumberNode(el, valueRegex);
+  }
+
+  // firma KPI pagina
   function getKPIsFromPage() {
-    const ROI_LABEL   = /ROI\b|ROI\s*previsionale/i;
-    const ROAS_LABEL  = /ROAS\b|ROAS\s*stimato/i;
-    const BUDGET_LAB  = /Budget\s*ADV\s*mensile/i;
-    const REV_LABEL   = /Fatturato\s*stimato/i;
-    const CPL_LABEL   = /\bCPL\b|\bCPL\s*stimato/i;
-    const CPA_LABEL   = /\bCPA\b|\bCPA\s*stimato/i;
+    const roi     = readKPI(RE.ROI,  RE.PERC);
+    const roas    = readKPI(RE.ROAS, RE.ROASV);
+    const budget  = readKPI(RE.BUD,  RE.MONEY);
+    const revenue = readKPI(RE.REV,  RE.MONEY);
+    const canone  = readKPI(RE.CAN,  RE.MONEY);
+    let utile     = readKPI(RE.PROF, RE.MONEY);
 
-    const PERC_VAL    = /-?\d+(?:[.,]\d+)?\s*%/;            // -92,08%
-    const ROAS_VAL    = /-?\d+(?:[.,]\d+)?\s*(?:x)?/i;      // 0,2x oppure 3
-    const MONEY_VAL   = /(€\s*)?-?\d[\d.,]*/;               // € 17.125 o -18.897
+    // se la label contiene "Perdita mensile" ed il numero è positivo, rendilo negativo.
+    const profEl = findLabelElement(RE.PROF);
+    if (profEl) {
+      const lt = (profEl.innerText || '').toLowerCase();
+      if (/perdita/i.test(lt) && typeof utile === 'number' && utile > 0) utile = -Math.abs(utile);
+    }
 
-    const roi     = readByLabel(ROI_LABEL,  PERC_VAL);
-    const roas    = readByLabel(ROAS_LABEL, ROAS_VAL);
-    const budget  = readByLabel(BUDGET_LAB, MONEY_VAL);
-    const revenue = readByLabel(REV_LABEL,  MONEY_VAL);
-    const cpl     = readByLabel(CPL_LABEL,  MONEY_VAL);
-    const cpa     = readByLabel(CPA_LABEL,  MONEY_VAL);
+    const ok = [roi, roas, budget, revenue].some(v => v !== null);
+    if (!ok) return null;
 
-    // validi se almeno ROI o ROAS sono presenti
-    const ok = (roi !== null || roas !== null);
-    return ok ? { roi, roas, cpl, cpa, budget, revenue } : null;
+    return { roi, roas, budget, revenue, canone, profit: utile };
   }
 
-  // Piccolo contesto utile (settore, target)
+  // info contesto (settore/target) se reperibili
   function getContextNote() {
-    const nodes = Array.from(document.querySelectorAll('label,div,span,p,button'));
-    const take = (re) => {
-      const el = nodes.find(n => re.test((n.textContent||'').trim()));
-      if (!el) return null;
-      const cand = el.nextElementSibling || el.parentElement;
-      const txt = cand ? (cand.textContent||'').trim() : '';
-      return txt && txt.length < 120 ? txt : null;
+    const pick = (re) => {
+      const all = Array.from(document.querySelectorAll('label,div,span,p,button,h4,h5'));
+      const lab = all.find(n => re.test((n.textContent || '').trim()));
+      if (!lab) return null;
+      const next = lab.nextElementSibling || lab.parentElement;
+      const val = next ? (next.textContent || '').trim() : '';
+      return val && val.length < 140 ? val : null;
     };
-    const target = take(/a chi vendi|tipo business/i);
-    const sector = take(/settore/i);
-    const list = [];
-    if (target) list.push(`target: ${target}`);
-    if (sector) list.push(`settore: ${sector}`);
-    return list.length ? list.join(' · ') : null;
+    const target = pick(/a chi vendi|tipo business|B2B|B2C/i);
+    const sector = pick(/settore/i);
+    const v = [];
+    if (target) v.push(`target: ${target}`);
+    if (sector) v.push(`settore: ${sector}`);
+    return v.join(' · ') || null;
   }
 
-  // Invoca la chat in “silenzioso” con i KPI
+  // bottone "Calcola la tua crescita"
+  function findCalculateButton() {
+    const all = Array.from(document.querySelectorAll('button,a'));
+    return all.find(el => /calcola la tua crescita/i.test(el.textContent || ''));
+  }
+
+  // invio silente alla chat
   function onCalculate() {
     const k = getKPIsFromPage();
-    if (!k) {
-      if (window.SuiteAssistantChat) window.SuiteAssistantChat.open({ autostart:true });
-      return;
-    }
-    const note = getContextNote();
-    if (window.SuiteAssistantChat) {
-      window.SuiteAssistantChat.analyseKPIsSilently(k, note);
+    const ctx = getContextNote();
+    if (window.SuiteAssistantChat && k) {
+      window.SuiteAssistantChat.analyseKPIsSilently(k, ctx);
+    } else if (window.SuiteAssistantChat) {
+      window.SuiteAssistantChat.open({ autostart: true }); // fallback
     }
   }
 
-  // Wire al click del bottone
   function wireCalculate() {
     const btn = findCalculateButton();
     if (!btn || btn.__sdw) return;
     btn.__sdw = true;
-    btn.addEventListener('click', () => {
-      // dai tempo al DOM di aggiornare i riquadri
-      setTimeout(onCalculate, 400);
-    });
-  }
-
-  // Niente extra: la chat gestisce il benvenuto
-  function wireOpenBubbleHint(){
-    const bubble = document.getElementById('sdw-bubble');
-    if (bubble && !bubble.__sdw) bubble.__sdw = true;
+    btn.addEventListener('click', () => setTimeout(onCalculate, 450));
   }
 
   function boot() {
     wireCalculate();
-    wireOpenBubbleHint();
+    // se cambia il DOM (SPA), riallaccia
     const mo = new MutationObserver(() => wireCalculate());
-    mo.observe(document.documentElement, { childList:true, subtree:true });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
