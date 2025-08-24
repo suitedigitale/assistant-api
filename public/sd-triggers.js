@@ -1,162 +1,260 @@
-/* public/sd-triggers.js — parser KPI ancorato a etichette + invio silente all'AI */
+// public/sd-chat.js
 (function () {
-  // -------- utils numeri IT --------
-  function itNumber(str) {
-    if (!str) return null;
-    let s = (str + '').trim();
+  // ===== CONFIG =====
+  const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant'; // cambia se serve
 
-    // normalizza: togli €/spazi, conserva segni, decimali, x e %
-    s = s.replace(/€|\s/g, '')
-         .replace(/[^\d.,xX%\-]/g, '')    // tieni solo ciò che serve
-         .replace(/\.(?=\d{3}\b)/g, '')   // 17.125 -> 17125
-         .replace(',', '.');              // 1,90 -> 1.90
-
-    // cattura la parte numerica iniziale (0.2, -92.08, ecc.)
-    const m = s.match(/^-?\d+(?:\.\d+)?/);
-    if (!m) return null;
-    const n = parseFloat(m[0]);
-    return Number.isFinite(n) ? n : null;
+  // ===== CSS =====
+  if (!document.getElementById('sdw-style')) {
+    const css = `
+#sdw-root{position:fixed;right:22px;bottom:22px;z-index:999999;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;width:380px;max-width:calc(100vw - 32px);display:none}
+#sdw-root.sdw-visible{display:block}
+#sdw-panel{background:#0d0f16;color:#e9eefc;border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+#sdw-head{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+#sdw-titleWrap{display:flex;align-items:center;gap:10px}
+#sdw-avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#23263a}
+#sdw-avatar span{filter:saturate(1.2)}
+#sdw-title{font-weight:700;font-size:14px}
+#sdw-online{display:inline-block;width:8px;height:8px;border-radius:999px;background:#3ce77a;box-shadow:0 0 0 2px #0d0f16}
+#sdw-close{background:transparent;border:0;color:#e9eefc;opacity:.8;cursor:pointer;font-size:18px}
+#sdw-body{height:420px;max-height:62vh;overflow:auto;padding:16px;background:#0b0d14;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex;gap:8px}
+.msg .bubble{max-width:78%;padding:12px 12px;border-radius:14px;line-height:1.35}
+.msg.ai{justify-content:flex-start}
+.msg.ai .bubble{background:#12162a;border:1px solid rgba(255,255,255,.06)}
+.msg.me{justify-content:flex-end}
+.msg.me .bubble{background:#7b5cff;color:#fff}
+.msg .meta{font-size:12px;opacity:.65;margin-top:2px}
+#sdw-foot{display:flex;flex-direction:column;gap:10px;padding:12px;border-top:1px solid rgba(255,255,255,.08);background:#0d0f16}
+#sdw-cta{display:block;width:100%;text-align:center;background:#ffdeaf;color:#1a1b24;border:0;border-radius:10px;padding:10px 12px;font-weight:700;cursor:pointer}
+#sdw-cta:hover{filter:brightness(.98)}
+#sdw-inputRow{display:flex;gap:8px}
+#sdw-input{flex:1;background:#10142a;border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#e9eefc;padding:12px}
+#sdw-send{background:#7b5cff;border:0;color:#fff;border-radius:10px;padding:0 14px;min-width:72px;cursor:pointer}
+#sdw-bubble{position:fixed;right:22px;bottom:22px;background:#7b5cff;color:#fff;border:0;border-radius:999px;padding:10px 14px;box-shadow:0 8px 20px rgba(0,0,0,.3);cursor:pointer;display:none;z-index:999999}
+.typing{opacity:.85}
+.typing .dots{display:inline-block;width:20px;text-align:left}
+a.sdw-link{color:#9ec5ff;text-decoration:underline}
+    `.trim();
+    const st = document.createElement('style');
+    st.id = 'sdw-style';
+    st.textContent = css;
+    document.head.appendChild(st);
   }
 
-  const RE = {
-    // etichette
-    ROI:   /ROI\b|ROI\s*previsionale/i,
-    ROAS:  /ROAS\b|ROAS\s*stimato/i,
-    BUD:   /Budget\s*ADV\s*mensile/i,
-    REV:   /Fatturato\s*stimato/i,
-    CAN:   /Canone\s*Suite\s*Digitale/i,
-    PROF:  /(Utile|Perdita)\s*mensile/i,
+  // ===== UI =====
+  let root, body, input, sendBtn;
 
-    // valori
-    PERC:  /-?\d+(?:[.,]\d+)?\s*%/,           // -92,08%
-    ROASV: /-?\d+(?:[.,]\d+)?\s*(?:x)?/i,     // 0,2x  oppure 3
-    MONEY: /(€\s*)?-?\d[\d.,]*/               // € 17.125 o -18.897
+  function mount() {
+    if (root) return;
+
+    // Bubble
+    const bubble = document.createElement('button');
+    bubble.id = 'sdw-bubble';
+    bubble.type = 'button';
+    bubble.textContent = 'Assistente AI';
+    bubble.onclick = () => open({ autostart: true });
+    document.body.appendChild(bubble);
+    bubble.style.display = 'inline-flex';
+
+    // Panel
+    root = document.createElement('div'); root.id = 'sdw-root';
+    root.innerHTML = `
+      <div id="sdw-panel">
+        <div id="sdw-head">
+          <div id="sdw-titleWrap">
+            <div id="sdw-avatar"><span>🤖</span></div>
+            <div>
+              <div id="sdw-title">Assistente AI</div>
+              <div style="display:flex;align-items:center;gap:6px"><span id="sdw-online"></span><small class="meta">Online</small></div>
+            </div>
+          </div>
+          <button id="sdw-close" aria-label="Chiudi">×</button>
+        </div>
+
+        <div id="sdw-body"></div>
+
+        <div id="sdw-foot">
+          <a id="sdw-cta" href="https://www.suitedigitale.it/candidatura/" target="_blank" rel="noopener">Richiedi un’analisi gratuita 👉</a>
+          <div id="sdw-inputRow">
+            <input id="sdw-input" type="text" placeholder="Scrivi qui… (es. rivediamo il budget, consigli)">
+            <button id="sdw-send">Invia</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    body    = root.querySelector('#sdw-body');
+    input   = root.querySelector('#sdw-input');
+    sendBtn = root.querySelector('#sdw-send');
+
+    root.querySelector('#sdw-close').onclick = () => close();
+
+    const fire = () => {
+      const v = (input.value || '').trim();
+      if (!v) return;
+      input.value = '';
+      ask(v);
+    };
+    sendBtn.onclick = fire;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fire(); } });
+  }
+
+  function showPanel()   { root.classList.add('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'none'; }
+  function hidePanel()   { root.classList.remove('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'inline-flex'; }
+
+  function addRow(from, html, raw=false) {
+    const row = document.createElement('div');
+    row.className = 'msg ' + (from === 'me' ? 'me' : 'ai');
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = raw ? html : fmt(html);
+    row.appendChild(bubble);
+    body.appendChild(row); body.scrollTop = body.scrollHeight;
+    return row;
+  }
+
+  // ===== Formatting (markdown leggero + link cliccabili) =====
+  function fmt(html) {
+    const esc = (s) => s.replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    let out = esc(html);
+    out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/(https?:\/\/[^\s)]+)(\)?)/g, '<a class="sdw-link" href="$1" target="_blank" rel="noopener">$1</a>$2');
+    out = out.replace(/\n/g, '<br>');
+    return out;
+  }
+
+  // ===== mini suoni (attivi dopo prima interazione utente) =====
+  let _userInteracted = false;
+  document.addEventListener('pointerdown', () => { _userInteracted = true; }, { once:true });
+  function beep(ms=120, freq=720, vol=0.04) {
+    if (!_userInteracted || !window.AudioContext) return;
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      gain.gain.value = vol;
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); setTimeout(()=>{ osc.stop(); ctx.close(); }, ms);
+    } catch {}
+  }
+
+  // ===== typing indicator =====
+  let _typingRow = null;
+  function showTyping(){
+    if (_typingRow) return;
+    const row = document.createElement('div');
+    row.className = 'msg ai typing';
+    row.innerHTML = `<div class="bubble">Sta scrivendo <span class="dots">.</span></div>`;
+    body.appendChild(row); body.scrollTop = body.scrollHeight;
+    _typingRow = row;
+
+    let i=0; const el = row.querySelector('.dots');
+    row._timer = setInterval(()=>{ el.textContent = ['.','..','...'][i++%3]; }, 300);
+  }
+  function hideTyping(){
+    if (!_typingRow) return;
+    clearInterval(_typingRow._timer);
+    _typingRow.remove(); _typingRow = null;
+  }
+
+  // ===== Backend call =====
+  async function ask(text) {
+    addRow('me', text);
+    showTyping();
+    try {
+      const r = await fetch(ENDPOINT, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ mode:'analysis', prompt:text })
+      });
+      const j = await r.json().catch(() => ({}));
+      hideTyping();
+      const msg = j.text || j.message || JSON.stringify(j);
+      addRow('ai', msg);
+    } catch (e) {
+      hideTyping();
+      addRow('ai', 'Si è verificato un errore di rete. Prova di nuovo tra poco.');
+    }
+  }
+
+  // === prompt per analisi KPI (proiezioni del simulatore, non storico) ===
+  function kpiPrompt(k, note) {
+    const parts = [];
+    if (typeof k.roi    === 'number') parts.push(`"roi": ${k.roi}`);
+    if (typeof k.roas   === 'number') parts.push(`"roas": ${k.roas}`);
+    if (typeof k.budget === 'number') parts.push(`"budget": ${k.budget}`);
+    if (typeof k.revenue=== 'number') parts.push(`"revenue": ${k.revenue}`);
+    if (typeof k.canone === 'number') parts.push(`"canone": ${k.canone}`);
+    if (typeof k.profit === 'number') parts.push(`"profit": ${k.profit}`);
+    const ctx = note ? `Contesto utente: ${note}.` : '';
+
+    // CTA esplicita, come richiesto
+    const CTA = 'Usa come ultimo paragrafo la CTA **Richiedi un’analisi gratuita 👉** con link https://www.suitedigitale.it/candidatura/ (link cliccabile).';
+
+    return `
+Sei l'**Assistente AI** di Suite Digitale. Analizza questi dati che sono **proiezioni** del simulatore (non performance storiche).
+Tono: **tecnico ma amichevole, energico**, chiaro e sintetico. Usa **grassetti** ed elenchi numerati/puntati quando utili.
+
+Dati (JSON):
+{ ${parts.join(', ')} }
+
+${ctx}
+
+Linee guida:
+- Spiega cosa implicano i numeri **come proiezioni**: se positivi, evidenzia potenziale e prossimi passi; se negativi, rischi (pricing, margini, costi operativi, conversioni).
+- Ricorda che Suite Digitale **unisce marketing e vendite**: strategist, media buyer, CRM specialist, setter/chatter in **un unico team coordinato** (no fornitori separati).
+- Suggerisci **idee di funnel** coerenti con settore/target (da validare in consulenza).
+- Non dare istruzioni "fai da te" di dettaglio: valorizza il lavoro del nostro team integrato.
+- Chiudi con una call to action forte.
+${CTA}
+`.trim();
+  }
+
+  // ===== API esposte globalmente =====
+  function open(opts={}) {
+    mount(); showPanel();
+    if (opts.autostart) {
+      // benvenuto AI (non “Tu”)
+      addRow('ai',
+        `Ciao! Per aiutarti davvero mi servono i tuoi parametri. `+
+        `Compila il simulatore (tipo business e settore, clienti mensili, scontrino medio e margine) e premi **Calcola la tua crescita**. `+
+        `Ti restituisco una lettura dei KPI simulati (ROI/ROAS, budget, utile) e i **prossimi passi**.`
+      );
+    }
+  }
+  function close() { hidePanel(); }
+
+  // chiamata silente dall’evento "Calcola la tua crescita"
+  async function analyseKPIsSilently(kpis, note) {
+    mount(); showPanel(); beep(120, 780);
+    showTyping();
+    try {
+      const r = await fetch(ENDPOINT, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ mode:'analysis', prompt: kpiPrompt(kpis, note) })
+      });
+      const j = await r.json().catch(() => ({}));
+      hideTyping();
+      addRow('ai', j.text || j.message || JSON.stringify(j));
+    } catch {
+      hideTyping();
+      addRow('ai', 'Ops, non riesco a completare ora. Riprova o scrivimi qui sotto.');
+    }
+  }
+
+  // esporta nel namespace globale
+  window.SuiteAssistantChat = {
+    open, close, ask,
+    analyseKPIsSilently
   };
 
-  // piccolo helper: cerca, vicino alla label, il primo elemento con numero valido
-  function nearestNumberNode(labelEl, valueRegex) {
-    if (!labelEl) return null;
+  // monta subito il bubble
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount);
+  } else { mount(); }
 
-    // 1) stesso nodo
-    let t = (labelEl.innerText || '').trim();
-    let m = t.match(valueRegex);
-    if (m) return itNumber(m[0]);
-
-    // 2) sibling successivi (prima riga col numero)
-    let sib = labelEl.nextElementSibling;
-    for (let i = 0; i < 5 && sib; i++, sib = sib.nextElementSibling) {
-      const ts = (sib.innerText || '').trim();
-      const mm = ts.match(valueRegex);
-      if (mm) return itNumber(mm[0]);
-    }
-
-    // 3) container più vicino: risali max 4 genitori e cerca dentro
-    let p = labelEl;
-    for (let up = 0; up < 4 && p; up++, p = p.parentElement) {
-      if (!p) break;
-      const all = Array.from(p.querySelectorAll('*'));
-      // scorri elementi nell'ordine: il primo con match vince
-      for (const el of all) {
-        const tx = (el.innerText || '').trim();
-        const mv = tx.match(valueRegex);
-        if (mv) return itNumber(mv[0]);
-      }
-    }
-    return null;
-  }
-
-  // trova la label (elemento) cercando testo
-  function findLabelElement(labelRegex) {
-    const all = Array.from(document.querySelectorAll('div,section,article,li,p,span,h1,h2,h3,h4,h5,h6,label'));
-    // priorità a elementi più piccoli (evita wrapper enormi)
-    let best = null;
-    for (const el of all) {
-      const txt = (el.innerText || '').trim();
-      if (!txt) continue;
-      if (!labelRegex.test(txt)) continue;
-      const score = txt.length;
-      if (!best || score < best.len) best = { el, len: score };
-    }
-    return best ? best.el : null;
-  }
-
-  // lettura KPI singolo
-  function readKPI(labelRegex, valueRegex) {
-    const el = findLabelElement(labelRegex);
-    return nearestNumberNode(el, valueRegex);
-  }
-
-  // firma KPI pagina
-  function getKPIsFromPage() {
-    const roi     = readKPI(RE.ROI,  RE.PERC);
-    const roas    = readKPI(RE.ROAS, RE.ROASV);
-    const budget  = readKPI(RE.BUD,  RE.MONEY);
-    const revenue = readKPI(RE.REV,  RE.MONEY);
-    const canone  = readKPI(RE.CAN,  RE.MONEY);
-    let utile     = readKPI(RE.PROF, RE.MONEY);
-
-    // se la label contiene "Perdita mensile" ed il numero è positivo, rendilo negativo.
-    const profEl = findLabelElement(RE.PROF);
-    if (profEl) {
-      const lt = (profEl.innerText || '').toLowerCase();
-      if (/perdita/i.test(lt) && typeof utile === 'number' && utile > 0) utile = -Math.abs(utile);
-    }
-
-    const ok = [roi, roas, budget, revenue].some(v => v !== null);
-    if (!ok) return null;
-
-    return { roi, roas, budget, revenue, canone, profit: utile };
-  }
-
-  // info contesto (settore/target) se reperibili
-  function getContextNote() {
-    const pick = (re) => {
-      const all = Array.from(document.querySelectorAll('label,div,span,p,button,h4,h5'));
-      const lab = all.find(n => re.test((n.textContent || '').trim()));
-      if (!lab) return null;
-      const next = lab.nextElementSibling || lab.parentElement;
-      const val = next ? (next.textContent || '').trim() : '';
-      return val && val.length < 140 ? val : null;
-    };
-    const target = pick(/a chi vendi|tipo business|B2B|B2C/i);
-    const sector = pick(/settore/i);
-    const v = [];
-    if (target) v.push(`target: ${target}`);
-    if (sector) v.push(`settore: ${sector}`);
-    return v.join(' · ') || null;
-  }
-
-  // bottone "Calcola la tua crescita"
-  function findCalculateButton() {
-    const all = Array.from(document.querySelectorAll('button,a'));
-    return all.find(el => /calcola la tua crescita/i.test(el.textContent || ''));
-  }
-
-  // invio silente alla chat
-  function onCalculate() {
-    const k = getKPIsFromPage();
-    const ctx = getContextNote();
-    if (window.SuiteAssistantChat && k) {
-      window.SuiteAssistantChat.analyseKPIsSilently(k, ctx);
-    } else if (window.SuiteAssistantChat) {
-      window.SuiteAssistantChat.open({ autostart: true }); // fallback
-    }
-  }
-
-  function wireCalculate() {
-    const btn = findCalculateButton();
-    if (!btn || btn.__sdw) return;
-    btn.__sdw = true;
-    btn.addEventListener('click', () => setTimeout(onCalculate, 450));
-  }
-
-  function boot() {
-    wireCalculate();
-    // se cambia il DOM (SPA), riallaccia
-    const mo = new MutationObserver(() => wireCalculate());
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  console.log('[SD] sd-chat.js pronto');
 })();
