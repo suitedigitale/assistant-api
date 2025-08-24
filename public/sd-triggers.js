@@ -1,4 +1,4 @@
-/* public/sd-triggers.js — apre chat e manda auto-messaggio al click su “Calcola la tua crescita” */
+/* public/sd-triggers.js — apre la chat e manda auto-messaggio al click su “Calcola la tua crescita” */
 (function () {
   const SELECTORS_CLICK   = ['#calcolaBtn', '[data-cta="calcola"]', 'a[href*="#sdw-open"]'];
   const SELECTORS_RESULTS = ['#kpi-results', '[data-kpi="results"]', '.kpi-results'];
@@ -23,6 +23,14 @@
         el.addEventListener('click', openAndAsk);
       }
     });
+
+    // fallback: delega globale se il testo contiene “calcola la tua crescita”
+    document.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button, a, [role="button"]');
+      if (!btn) return;
+      const txt = (btn.textContent || '').toLowerCase();
+      if (txt.includes('calcola la tua crescita')) openAndAsk();
+    }, true);
   }
 
   function initResultsObserver() {
