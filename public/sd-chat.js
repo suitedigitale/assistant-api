@@ -1,4 +1,3 @@
-<script>
 // =========================
 //  Suite Digitale - Chat UI
 // =========================
@@ -167,4 +166,3 @@
   s.defer = true;
   document.head.appendChild(s);
 })();
-</script>
