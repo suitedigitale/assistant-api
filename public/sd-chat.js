@@ -1,70 +1,58 @@
-/* public/sd-chat.js — bubble + UI + invii “silenti” + link cliccabili + stile messaggi */
+// public/sd-chat.js
 (function () {
-  // ====== CONFIG ======
-  const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant';
-  const CTA_URL = 'https://www.suitedigitale.it/candidatura/';
+  // ===== CONFIG =====
+  const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant'; // cambia se serve
 
-  // ====== CSS ======
-  if (document.getElementById('sdw-style')) return;
-  const css = `
-  :root { --sd-bg:#0f1220; --sd-panel:#15172a; --sd-bubble:#7b5cff; --sd-muted:#aeb3c7; --sd-accent:#7b5cff; --sd-ring:rgba(123,92,255,.35); }
-  #sdw-root{position:fixed;right:24px;bottom:24px;z-index:999999;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;width:410px;max-width:calc(100vw - 32px);display:none}
-  #sdw-root.sdw-visible{display:block}
-  #sdw-panel{background:#0c0f1a;color:#eef1ff;border:1px solid rgba(255,255,255,.08);border-radius:16px;overflow:hidden;box-shadow:0 22px 60px rgba(0,0,0,.45)}
-  #sdw-head{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:#0f1220}
-  #sdw-title{display:flex;align-items:center;gap:10px;font-weight:800}
-  #sdw-title .ava{font-size:20px}
-  #sdw-title .dot{width:8px;height:8px;background:#22c55e;border-radius:999px;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
-  #sdw-close{background:transparent;border:0;color:#e6e8ee;opacity:.8;cursor:pointer;font-size:18px}
-  #sdw-body{height:380px;max-height:62vh;overflow:auto;padding:16px 12px;background:#0a0d17;scrollbar-width:thin}
-  .sdw-row{display:flex;margin:10px 0}
-  .sdw-msg{max-width:82%;padding:12px 14px;border-radius:14px;line-height:1.45}
-  .sdw-msg p{margin:.3rem 0}
-  .sdw-msg ul{margin:.3rem 0 .8rem 1.1rem}
-  .sdw-msg h4{margin:.2rem 0 .4rem 0;font-size:15px;font-weight:800}
-  .ai{justify-content:flex-start}
-  .ai .sdw-msg{background:#151a33;border:1px solid rgba(255,255,255,.06)}
-  .me{justify-content:flex-end}
-  .me .sdw-msg{background:#1b2250;border:1px solid rgba(255,255,255,.1)}
-  #sdw-foot{display:flex;gap:8px;padding:10px;border-top:1px solid rgba(255,255,255,.06);background:#0f1220}
-  #sdw-input{flex:1;background:#0c1026;border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#e6e8ee;padding:10px;outline:none}
-  #sdw-input:focus{border-color:var(--sd-accent);box-shadow:0 0 0 3px var(--sd-ring)}
-  #sdw-send{background:#7b5cff;border:0;color:#fff;border-radius:10px;padding:0 12px;min-width:68px;cursor:pointer}
-  #sdw-cta{position:sticky;bottom:0;margin:8px 0;background:#ffece6;color:#1a1b2e;border:1px solid #ffd1c4;border-radius:12px;padding:10px 12px;text-align:center;font-weight:800;cursor:pointer}
-  #sdw-cta:hover{filter:brightness(1.02)}
-  #sdw-bubble{position:fixed;right:22px;bottom:22px;background:#7b5cff;color:#fff;border:0;border-radius:999px;padding:12px 16px;box-shadow:0 10px 26px rgba(0,0,0,.35);cursor:pointer;display:none;z-index:999999}
-  a.sdw-link{color:#9dc1ff;text-decoration:underline}
-  `;
-  const st = document.createElement('style'); st.id = 'sdw-style'; st.textContent = css; document.head.appendChild(st);
+  // ===== CSS =====
+  if (!document.getElementById('sdw-style')) {
+    const css = `
+#sdw-root{position:fixed;right:22px;bottom:22px;z-index:999999;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;width:380px;max-width:calc(100vw - 32px);display:none}
+#sdw-root.sdw-visible{display:block}
+#sdw-panel{background:#0d0f16;color:#e9eefc;border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+#sdw-head{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+#sdw-titleWrap{display:flex;align-items:center;gap:10px}
+#sdw-avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#23263a}
+#sdw-avatar span{filter:saturate(1.2)}
+#sdw-title{font-weight:700;font-size:14px}
+#sdw-online{display:inline-block;width:8px;height:8px;border-radius:999px;background:#3ce77a;box-shadow:0 0 0 2px #0d0f16}
+#sdw-close{background:transparent;border:0;color:#e9eefc;opacity:.8;cursor:pointer;font-size:18px}
+#sdw-body{height:420px;max-height:62vh;overflow:auto;padding:16px;background:#0b0d14;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex;gap:8px}
+.msg .bubble{max-width:78%;padding:12px 12px;border-radius:14px;line-height:1.35}
+.msg.ai{justify-content:flex-start}
+.msg.ai .bubble{background:#12162a;border:1px solid rgba(255,255,255,.06)}
+.msg.me{justify-content:flex-end}
+.msg.me .bubble{background:#7b5cff;color:#fff}
+.msg .meta{font-size:12px;opacity:.65;margin-top:2px}
+#sdw-foot{display:flex;flex-direction:column;gap:10px;padding:12px;border-top:1px solid rgba(255,255,255,.08);background:#0d0f16}
+#sdw-cta{display:block;width:100%;text-align:center;background:#ffdeaf;color:#1a1b24;border:0;border-radius:10px;padding:10px 12px;font-weight:700;cursor:pointer}
+#sdw-cta:hover{filter:brightness(.98)}
+#sdw-inputRow{display:flex;gap:8px}
+#sdw-input{flex:1;background:#10142a;border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#e9eefc;padding:12px}
+#sdw-send{background:#7b5cff;border:0;color:#fff;border-radius:10px;padding:0 14px;min-width:72px;cursor:pointer}
+#sdw-bubble{position:fixed;right:22px;bottom:22px;background:#7b5cff;color:#fff;border:0;border-radius:999px;padding:10px 14px;box-shadow:0 8px 20px rgba(0,0,0,.3);cursor:pointer;display:none;z-index:999999}
+.typing{opacity:.85}
+.typing .dots{display:inline-block;width:20px;text-align:left}
+a.sdw-link{color:#9ec5ff;text-decoration:underline}
+    `.trim();
+    const st = document.createElement('style');
+    st.id = 'sdw-style';
+    st.textContent = css;
+    document.head.appendChild(st);
+  }
 
-  // ====== tiny helpers ======
-  const toHTML = (txt) => {
-    // **bold**
-    let h = (txt||'').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    // 1. elenchi numerati (già in testo)
-    // link -> <a>
-    h = h.replace(/(https?:\/\/[^\s)]+)/g, '<a class="sdw-link" target="_blank" rel="noopener">$1</a>');
-    // titolini: **Titolo:** -> h4
-    h = h.replace(/\*\*(.+?)\*\:\s*/g, '<h4>$1</h4>');
-    // bullet improvvisati: “- testo” -> li
-    if (/^- /m.test(h)) {
-      h = '<ul>'+h.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
-    }
-    // nuove righe
-    return h.replace(/\n/g,'<br/>');
-  };
-
-  // ====== UI ======
-  let root, body, input, sendBtn, ctaBtn;
+  // ===== UI =====
+  let root, body, input, sendBtn;
 
   function mount() {
     if (root) return;
-    // Bubble pronto
+
+    // Bubble
     const bubble = document.createElement('button');
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
-    bubble.textContent = '🤖 Assistente AI';
-    bubble.onclick = () => open({ autostart: false });
+    bubble.textContent = 'Assistente AI';
+    bubble.onclick = () => open({ autostart: true });
     document.body.appendChild(bubble);
     bubble.style.display = 'inline-flex';
 
@@ -73,125 +61,200 @@
     root.innerHTML = `
       <div id="sdw-panel">
         <div id="sdw-head">
-          <div id="sdw-title"><span class="ava">🤖</span> <span>Assistente AI</span> <span class="dot"></span></div>
+          <div id="sdw-titleWrap">
+            <div id="sdw-avatar"><span>🤖</span></div>
+            <div>
+              <div id="sdw-title">Assistente AI</div>
+              <div style="display:flex;align-items:center;gap:6px"><span id="sdw-online"></span><small class="meta">Online</small></div>
+            </div>
+          </div>
           <button id="sdw-close" aria-label="Chiudi">×</button>
         </div>
+
         <div id="sdw-body"></div>
+
         <div id="sdw-foot">
-          <button id="sdw-cta">Richiedi un’analisi gratuita 👉</button>
+          <a id="sdw-cta" href="https://www.suitedigitale.it/candidatura/" target="_blank" rel="noopener">Richiedi un’analisi gratuita 👉</a>
+          <div id="sdw-inputRow">
+            <input id="sdw-input" type="text" placeholder="Scrivi qui… (es. rivediamo il budget, consigli)">
+            <button id="sdw-send">Invia</button>
+          </div>
         </div>
-        <div id="sdw-foot">
-          <input id="sdw-input" type="text" placeholder="Scrivi qui… (es. rivediamo il budget, consigli)">
-          <button id="sdw-send">Invia</button>
-        </div>
-      </div>`;
+      </div>
+    `;
     document.body.appendChild(root);
 
     body    = root.querySelector('#sdw-body');
     input   = root.querySelector('#sdw-input');
     sendBtn = root.querySelector('#sdw-send');
-    ctaBtn  = root.querySelector('#sdw-cta');
 
     root.querySelector('#sdw-close').onclick = () => close();
 
-    ctaBtn.onclick = () => { window.open(CTA_URL, '_blank'); };
-
     const fire = () => {
-      const v = (input.value || '').trim(); if (!v) return;
+      const v = (input.value || '').trim();
+      if (!v) return;
       input.value = '';
-      ask(v, {silent:false});
+      ask(v);
     };
     sendBtn.onclick = fire;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fire(); } });
   }
-  function showPanel(){ root.classList.add('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'none'; }
-  function hidePanel(){ root.classList.remove('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'inline-flex'; }
 
-  function addRow(role, textHTML) {
-    const row = document.createElement('div'); row.className = 'sdw-row ' + role;
-    const msg = document.createElement('div'); msg.className = 'sdw-msg'; msg.innerHTML = textHTML;
-    row.appendChild(msg); body.appendChild(row);
-    body.scrollTop = body.scrollHeight;
+  function showPanel()   { root.classList.add('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'none'; }
+  function hidePanel()   { root.classList.remove('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'inline-flex'; }
+
+  function addRow(from, html, raw=false) {
+    const row = document.createElement('div');
+    row.className = 'msg ' + (from === 'me' ? 'me' : 'ai');
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = raw ? html : fmt(html);
+    row.appendChild(bubble);
+    body.appendChild(row); body.scrollTop = body.scrollHeight;
+    return row;
   }
 
-  // ====== Backend call (silente possibile) ======
-  async function ask(prompt, opts={silent:false, meta:null}) {
-    if (!opts.silent) addRow('me', toHTML(prompt));
-    addRow('ai', toHTML('⌛ Sto analizzando…'));
+  // ===== Formatting (markdown leggero + link cliccabili) =====
+  function fmt(html) {
+    const esc = (s) => s.replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    let out = esc(html);
+    out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/(https?:\/\/[^\s)]+)(\)?)/g, '<a class="sdw-link" href="$1" target="_blank" rel="noopener">$1</a>$2');
+    out = out.replace(/\n/g, '<br>');
+    return out;
+  }
 
-    // Prompt “specialista” per ancorare toni e USP
-    const CONTEXT = `
-Sei l’Assistente AI di **Suite Digitale**. Tono: cordiale, professionale, motivante.
-Obiettivo: aiutare l'utente a capire KPI simulati e guidarlo verso una **Consulenza Gratuita**.
-Ricorda i benefici: uniamo Marketing & Vendite in un unico team (strategist, media buyer, venditori), 
-Piattaforma all-in-one, funnel, CRM, automazioni, lead generation, presa appuntamenti: tutto coordinato.
-Se la domanda non è pertinente al marketing/servizi Suite Digitale, spiega che sei specializzato e invita a scriverci: 
-**marketing@suitedigitale.it** o **+39 351 509 4722**.
-Nelle risposte: usa **grassetto** per concetti chiave, elenco numerato o puntato se aiuta. A fine risposta chiudi con un invito alla consulenza:
-“**Vuoi andare a fondo con il tuo caso?** Prenota qui 👉 ${CTA_URL}”.
-`.trim();
-
+  // ===== mini suoni (attivi dopo prima interazione utente) =====
+  let _userInteracted = false;
+  document.addEventListener('pointerdown', () => { _userInteracted = true; }, { once:true });
+  function beep(ms=120, freq=720, vol=0.04) {
+    if (!_userInteracted || !window.AudioContext) return;
     try {
-      const res = await fetch(ENDPOINT, {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      gain.gain.value = vol;
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); setTimeout(()=>{ osc.stop(); ctx.close(); }, ms);
+    } catch {}
+  }
+
+  // ===== typing indicator =====
+  let _typingRow = null;
+  function showTyping(){
+    if (_typingRow) return;
+    const row = document.createElement('div');
+    row.className = 'msg ai typing';
+    row.innerHTML = `<div class="bubble">Sta scrivendo <span class="dots">.</span></div>`;
+    body.appendChild(row); body.scrollTop = body.scrollHeight;
+    _typingRow = row;
+
+    let i=0; const el = row.querySelector('.dots');
+    row._timer = setInterval(()=>{ el.textContent = ['.','..','...'][i++%3]; }, 300);
+  }
+  function hideTyping(){
+    if (!_typingRow) return;
+    clearInterval(_typingRow._timer);
+    _typingRow.remove(); _typingRow = null;
+  }
+
+  // ===== Backend call =====
+  async function ask(text) {
+    addRow('me', text);
+    showTyping();
+    try {
+      const r = await fetch(ENDPOINT, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          mode:'analysis',
-          prompt: prompt,
-          context: CONTEXT,
-          meta: opts.meta || null
-        })
+        body: JSON.stringify({ mode:'analysis', prompt:text })
       });
-      const j = await res.json().catch(() => ({}));
-      const out = (j && (j.text || j.message)) ? j.text || j.message : JSON.stringify(j);
-      // replace last “⌛” with answer
-      body.lastChild.querySelector('.sdw-msg').innerHTML = toHTML(out);
+      const j = await r.json().catch(() => ({}));
+      hideTyping();
+      const msg = j.text || j.message || JSON.stringify(j);
+      addRow('ai', msg);
     } catch (e) {
-      body.lastChild.querySelector('.sdw-msg').innerHTML = toHTML(
-        `Non riesco a contattare il server ora. Intanto ti aiuto comunque: 
-**Vuoi capire ROI/ROAS e cosa fare dopo?** Posso darti indicazioni generali e prepararti alla **Consulenza Gratuita** 👉 ${CTA_URL}`
-      );
+      hideTyping();
+      addRow('ai', 'Si è verificato un errore di rete. Prova di nuovo tra poco.');
     }
   }
 
-  // ====== API pubbliche per i trigger ======
+  // === prompt per analisi KPI (proiezioni del simulatore, non storico) ===
+  function kpiPrompt(k, note) {
+    const parts = [];
+    if (typeof k.roi    === 'number') parts.push(`"roi": ${k.roi}`);
+    if (typeof k.roas   === 'number') parts.push(`"roas": ${k.roas}`);
+    if (typeof k.budget === 'number') parts.push(`"budget": ${k.budget}`);
+    if (typeof k.revenue=== 'number') parts.push(`"revenue": ${k.revenue}`);
+    if (typeof k.canone === 'number') parts.push(`"canone": ${k.canone}`);
+    if (typeof k.profit === 'number') parts.push(`"profit": ${k.profit}`);
+    const ctx = note ? `Contesto utente: ${note}.` : '';
+
+    // CTA esplicita, come richiesto
+    const CTA = 'Usa come ultimo paragrafo la CTA **Richiedi un’analisi gratuita 👉** con link https://www.suitedigitale.it/candidatura/ (link cliccabile).';
+
+    return `
+Sei l'**Assistente AI** di Suite Digitale. Analizza questi dati che sono **proiezioni** del simulatore (non performance storiche).
+Tono: **tecnico ma amichevole, energico**, chiaro e sintetico. Usa **grassetti** ed elenchi numerati/puntati quando utili.
+
+Dati (JSON):
+{ ${parts.join(', ')} }
+
+${ctx}
+
+Linee guida:
+- Spiega cosa implicano i numeri **come proiezioni**: se positivi, evidenzia potenziale e prossimi passi; se negativi, rischi (pricing, margini, costi operativi, conversioni).
+- Ricorda che Suite Digitale **unisce marketing e vendite**: strategist, media buyer, CRM specialist, setter/chatter in **un unico team coordinato** (no fornitori separati).
+- Suggerisci **idee di funnel** coerenti con settore/target (da validare in consulenza).
+- Non dare istruzioni "fai da te" di dettaglio: valorizza il lavoro del nostro team integrato.
+- Chiudi con una call to action forte.
+${CTA}
+`.trim();
+  }
+
+  // ===== API esposte globalmente =====
   function open(opts={}) {
     mount(); showPanel();
-    // benvenuto SOLO se non siamo in analisi KPI
     if (opts.autostart) {
-      ask(
-        `Ciao! Per aiutarti davvero mi servono i tuoi parametri. Compila il simulatore (tipo business e settore, clienti mensili, scontrino medio e margine) poi premi **Calcola la tua crescita**. Ti restituisco ROI/ROAS, budget e i punti da migliorare.`,
-        {silent:false}
+      // benvenuto AI (non “Tu”)
+      addRow('ai',
+        `Ciao! Per aiutarti davvero mi servono i tuoi parametri. `+
+        `Compila il simulatore (tipo business e settore, clienti mensili, scontrino medio e margine) e premi **Calcola la tua crescita**. `+
+        `Ti restituisco una lettura dei KPI simulati (ROI/ROAS, budget, utile) e i **prossimi passi**.`
       );
     }
   }
-  function close(){ hidePanel(); }
+  function close() { hidePanel(); }
 
-  // richiamato dai trigger dopo il click su “Calcola”
-  function analyseKPIsSilently(kpi, contextNote) {
-    mount(); showPanel();
-    const k = kpi || {};
-    // prompt “silente” (non compare come messaggio utente)
-    const prompt = `
-Analizza questi KPI simulati (non sono risultati reali ma una stima): 
-ROI: ${k.roi ?? 'nd'} | ROAS: ${k.roas ?? 'nd'} | CPL: ${k.cpl ?? 'nd'} | CPA: ${k.cpa ?? 'nd'} | Budget: ${k.budget ?? 'nd'} | Fatturato: ${k.revenue ?? 'nd'}.
-${contextNote ? 'Contesto: ' + contextNote : ''}
-
-Dammi una valutazione in 4–6 punti con:
-- interpretazione rapida e concreta;
-- perché è importante un team integrato marketing+vendite; 
-- quando ROI/ROAS sono deboli: invito a prenotare la consulenza per rimettere in rotta;
-- se i numeri sono buoni: spiegare come scalare con strategia e controllo KPI;
-Chiudi SEMPRE con “**Vuoi andare a fondo con il tuo caso?** Prenota qui 👉 ${CTA_URL}”.
-`.trim();
-    ask(prompt, {silent:true, meta:{kpi}});
+  // chiamata silente dall’evento "Calcola la tua crescita"
+  async function analyseKPIsSilently(kpis, note) {
+    mount(); showPanel(); beep(120, 780);
+    showTyping();
+    try {
+      const r = await fetch(ENDPOINT, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ mode:'analysis', prompt: kpiPrompt(kpis, note) })
+      });
+      const j = await r.json().catch(() => ({}));
+      hideTyping();
+      addRow('ai', j.text || j.message || JSON.stringify(j));
+    } catch {
+      hideTyping();
+      addRow('ai', 'Ops, non riesco a completare ora. Riprova o scrivimi qui sotto.');
+    }
   }
 
-  window.SuiteAssistantChat = { open, close, ask, analyseKPIsSilently };
+  // esporta nel namespace globale
+  window.SuiteAssistantChat = {
+    open, close, ask,
+    analyseKPIsSilently
+  };
 
-  // bubble sempre pronto
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
-  else mount();
+  // monta subito il bubble
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount);
+  } else { mount(); }
 
   console.log('[SD] sd-chat.js pronto');
 })();
