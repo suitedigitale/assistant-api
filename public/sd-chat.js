@@ -1,15 +1,14 @@
-/* public/sd-chat.js — Suite Digitale mini widget (brand #8C52FF) */
+/* public/sd-chat.js — Suite Digitale widget (brand #8C52FF) */
 (function () {
-  // ====== CONFIG ======
   const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant';
-  const BRAND   = '#8C52FF';        // colore principale
+  const BRAND   = '#8C52FF';
   const DARKBG  = '#0c0f1a';
   const PANEL   = '#121528';
   const TEXT    = '#e9ecff';
   const MUTED   = 'rgba(233,236,255,.65)';
   const GREEN   = '#2cd573';
 
-  // ====== STYLE (non blocca il montaggio se già presente) ======
+  // --- CSS (robusto) --------------------------------------------------------
   (function ensureStyle(){
     if (document.getElementById('sdw-style')) return;
     const css = `
@@ -53,7 +52,7 @@
     document.head.appendChild(st);
   })();
 
-  // ====== SOUND (solo all’apertura) ======
+  // --- SOUND (solo apertura) ------------------------------------------------
   function ding(){
     try{
       const ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -66,31 +65,25 @@
     }catch(e){}
   }
 
-  // ====== DOM refs ======
+  // --- DOM refs -------------------------------------------------------------
   let root, body, input, sendBtn, ctaBtn, typingEl;
 
-  // ====== MOUNT ======
+  // --- MOUNT ---------------------------------------------------------------
   function mount(){
     if (root) return;
 
-    // floating bubble
     const fab = document.createElement('button');
-    fab.id='sdw-bubble';
-    fab.type='button';
-    fab.textContent='Assistente AI';
+    fab.id='sdw-bubble'; fab.type='button'; fab.textContent='Assistente AI';
     fab.onclick = () => open({autostart:false});
     document.body.appendChild(fab);
     fab.style.display='inline-flex';
 
-    // panel
     root = document.createElement('div'); root.id='sdw-root';
     root.innerHTML = `
       <div id="sdw-panel">
         <div id="sdw-head">
           <div id="sdw-title">
-            <span class="pfp">🤖</span>
-            <span>Assistente AI</span>
-            <span class="dot" title="Online"></span>
+            <span class="pfp">🤖</span><span>Assistente AI</span><span class="dot" title="Online"></span>
           </div>
           <button id="sdw-close" aria-label="Chiudi">×</button>
         </div>
@@ -102,8 +95,7 @@
             <button id="sdw-send">Invia</button>
           </div>
         </div>
-      </div>
-    `;
+      </div>`;
     document.body.appendChild(root);
 
     body    = root.querySelector('#sdw-body');
@@ -121,17 +113,32 @@
     sendBtn.onclick = fire;
     input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); fire(); } });
 
-    // messaggio di benvenuto (AI)
-    addAI(`Ciao! Per aiutarti davvero mi servirebbero i tuoi parametri. Compila il simulatore (tipo business e settore, clienti mensili, scontrino medio e margine) poi premi **Calcola la tua crescita**. Ti restituirei ROI/ROAS, budget e i punti da migliorare.`, true);
+    addAI(`Ciao! Per aiutarti davvero mi servirebbero i tuoi parametri. Compilando il simulatore e premendo **Calcola la tua crescita**, ti restituirei un’analisi dei KPI *simulati* (ROI/ROAS, budget, utile) e i prossimi step.`, true);
   }
 
   function showPanel(){ root.classList.add('sdw-visible'); document.getElementById('sdw-bubble').style.display='none'; }
   function hidePanel(){ root.classList.remove('sdw-visible'); document.getElementById('sdw-bubble').style.display='inline-flex'; }
   function scrollB(){ body.scrollTop = body.scrollHeight; }
 
-  // ====== Messages ======
-  function addRowHTML(side, html){
-    const row = document.createElement('div'); row.className = 'msg '+side;
+  // --- messages ------------------------------------------------------------
+  function md(t){
+    let s = (t||'')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/^### (.+)$/gm,'<h4>$1</h4>')
+      .replace(/^- (.+)$/gm,'<li>$1</li>')
+      .replace(/\n{2,}/g,'\n\n').replace(/\n/g,'<br>');
+    s = s.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
+    s = s.replace(/https?:\/\/[^\s)]+/g,(m)=>{
+      const clean = m.replace(/\)\]|\]|\)$/g,'');
+      return `<a href="${clean}" target="_blank" rel="noopener">${clean}</a>`;
+    });
+    s = s.replace(/https:\/\/www\.suitedigitale\.it\/candidatura\/?(\))?/g,
+      `<a href="https://www.suitedigitale.it/candidatura/" target="_blank" rel="noopener">https://www.suitedigitale.it/candidatura/</a>`);
+    return s;
+  }
+  function addRow(side, html){
+    const row = document.createElement('div'); row.className='msg '+side;
     if(side==='ai'){
       row.innerHTML = `<span class="pfp">🤖</span><div class="bubble">${html}</div>`;
     }else{
@@ -139,199 +146,103 @@
     }
     body.appendChild(row); scrollB();
   }
-  function md(txt){
-    // minimale: **bold**, liste, linee, h4 (###)
-    let t = (txt||'')
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-      .replace(/^### (.+)$/gm,'<h4>$1</h4>')
-      .replace(/^- (.+)$/gm,'<li>$1</li>')
-      .replace(/\n{2,}/g,'\n\n')
-      .replace(/\n/g,'<br>');
-    // lista <li> → <ul>
-    t = t.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
-    // linkify + fix candidatura
-    t = t.replace(/https?:\/\/[^\s)]+/g,(m)=>{
-      const clean = m.replace(/\)\]|\]|\)$/g,''); // pulizia eventuale markdown rotto
-      return `<a href="${clean}" target="_blank" rel="noopener">${clean}</a>`;
-    });
-    // se dentro testo appare candidatura, mantieni il link corretto e visibile
-    t = t.replace(/https:\/\/www\.suitedigitale\.it\/candidatura\/?(\))?/g,
-      `<a href="https://www.suitedigitale.it/candidatura/" target="_blank" rel="noopener">https://www.suitedigitale.it/candidatura/</a>`);
-    return t;
-  }
-  function addME(text){ addRowHTML('me', md(text)); }
-  function addAI(text, first=false){
-    addRowHTML('ai', md(text));
-    if(first) scrollB();
-  }
+  function addME(t){ addRow('me', md(t)); }
+  function addAI(t,first){ addRow('ai', md(t)); if(first) scrollB(); }
+
   function setTyping(on){
     if(on){
+      if(typingEl) return;
       typingEl = document.createElement('div');
       typingEl.className='msg ai';
       typingEl.innerHTML = `<span class="pfp">🤖</span><div class="bubble typing">Sta scrivendo…</div>`;
       body.appendChild(typingEl); scrollB();
-    }else if(typingEl){
-      typingEl.remove(); typingEl=null;
-    }
+    }else if(typingEl){ typingEl.remove(); typingEl=null; }
   }
 
-  // ====== KPI READER ======
-  function numFromEuro(text){
-    if(!text) return null;
-    const m = text.replace(/\./g,'').replace(',', '.').match(/€\s*[-+]?\d+(\.\d+)?/);
-    return m ? parseFloat(m[0].replace(/[€\s]/g,'')) : null;
-  }
-  function numFromPercent(text){
-    if(!text) return null;
-    const m = text.replace(',', '.').match(/[-+]?\d+(\.\d+)?\s*%/);
-    return m ? parseFloat(m[0].replace('%','').trim()) : null;
-  }
-  function numFromX(text){
-    if(!text) return null;
-    const m = text.replace(',', '.').match(/[-+]?\d+(\.\d+)?\s*x/);
-    return m ? parseFloat(m[0].replace('x','').trim()) : null;
-  }
-  function closestText(selector, needle){
-    const all = Array.from(document.querySelectorAll(selector));
-    const t = (needle||'').toLowerCase();
-    return all.find(el => (el.innerText||'').toLowerCase().includes(t));
-  }
-  function readEuroByLabel(label){
-    const el = closestText('section,div,li,span,p,article', label);
-    if(!el) return null;
-    // prova nello stesso blocco
-    const block = el.closest('div,section,article') || el;
-    const txt = block.innerText;
-    return numFromEuro(txt);
-  }
-  function readPercentByLabel(label){
-    const el = closestText('section,div,li,span,p,article', label);
-    if(!el) return null;
-    const block = el.closest('div,section,article') || el;
-    const txt = block.innerText;
-    return numFromPercent(txt);
-  }
-  function readXByLabel(label){
-    const el = closestText('section,div,li,span,p,article', label);
-    if(!el) return null;
-    const block = el.closest('div,section,article') || el;
-    const txt = block.innerText;
-    return numFromX(txt);
-  }
+  // --- KPI reader (tollerante) ---------------------------------------------
+  function euroIn(txt){ if(!txt) return null; const m = txt.replace(/\./g,'').replace(',', '.').match(/€\s*[-+]?\d+(\.\d+)?/); return m?parseFloat(m[0].replace(/[€\s]/g,'')):null; }
+  function percIn(txt){ if(!txt) return null; const m = txt.replace(',', '.').match(/[-+]?\d+(\.\d+)?\s*%/); return m?parseFloat(m[0].replace('%','').trim()):null; }
+  function xIn(txt){ if(!txt) return null; const m = txt.replace(',', '.').match(/[-+]?\d+(\.\d+)?\s*x/); return m?parseFloat(m[0].replace('x','').trim()):null; }
+  function byTxt(sel,needle){ const t=(needle||'').toLowerCase(); return Array.from(document.querySelectorAll(sel)).find(el=> (el.innerText||'').toLowerCase().includes(t)); }
+  function readEuro(label){ const el = byTxt('section,div,li,span,p,article', label); if(!el) return null; const b=el.closest('div,section,article')||el; return euroIn(b.innerText); }
+  function readPerc(label){ const el = byTxt('section,div,li,span,p,article', label); if(!el) return null; const b=el.closest('div,section,article')||el; return percIn(b.innerText); }
+  function readX(label){ const el = byTxt('section,div,li,span,p,article', label); if(!el) return null; const b=el.closest('div,section,article')||el; return xIn(b.innerText); }
   function readChannel(){
-    const el = closestText('label,div,span,p', 'a chi vendi') || closestText('div,span,p','B2B');
-    const all = document.querySelectorAll('select,button,div,span');
-    let v = '';
-    Array.from(all).forEach(n=>{
-      const tx=(n.innerText||'').toUpperCase();
-      if(/B2B/.test(tx)) v='B2B';
-      if(/B2C/.test(tx)) v='B2C';
-    });
+    const all = Array.from(document.querySelectorAll('select,button,div,span'));
+    let v=''; all.forEach(n=>{ const tx=(n.innerText||'').toUpperCase(); if(/B2B/.test(tx)) v='B2B'; if(/B2C/.test(tx)) v='B2C'; });
     return v || 'Non indicato';
   }
   function readSector(){
-    const lab = closestText('label,div,span,p', 'Settore');
-    if(!lab) {
-      // prova a trovare il valore selezionato per settore
-      const s = Array.from(document.querySelectorAll('select option'))
-        .find(o => (o.selected && (o.innerText||'').trim().length>1));
-      return s ? s.innerText.trim() : 'Non indicato';
+    const label = byTxt('label,div,span,p','Settore');
+    if(!label){
+      const opt = Array.from(document.querySelectorAll('select option')).find(o=>o.selected);
+      return opt? (opt.innerText||'').trim() : 'Non indicato';
     }
-    const block = lab.closest('div,section,article')||lab;
-    const selected = block.querySelector('option[selected], .selected, [aria-selected="true"]');
-    if(selected) return (selected.innerText||selected.textContent||'').trim();
-    // fallback: il testo dentro il blocco con capitalizzazione
-    return (block.innerText||'').split('\n').map(s=>s.trim()).filter(Boolean)[1] || 'Non indicato';
+    const block = label.closest('div,section,article')||label;
+    const chosen = block.querySelector('option[selected], .selected, [aria-selected="true"]');
+    return chosen? (chosen.innerText||'').trim() : 'Non indicato';
   }
-
   function readKPIs(){
-    // Etichette robustissime
-    const fatturato = readEuroByLabel('Fatturato stimato')      || readEuroByLabel('Fatturato');
-    const budget    = readEuroByLabel('Budget ADV mensile')     || readEuroByLabel('Budget');
-    const canone    = readEuroByLabel('Canone Suite Digitale')  || readEuroByLabel('Canone');
-
-    const roi       = readPercentByLabel('ROI previsionale')    || readPercentByLabel('ROI');
-    const roas      = readXByLabel('ROAS stimato')              || readXByLabel('ROAS');
-
-    // Utile o Perdita
-    let utile = readEuroByLabel('Utile mensile');
-    if(utile==null){
-      const perdita = readEuroByLabel('Perdita mensile');
-      utile = (perdita!=null)? (-Math.abs(perdita)) : null;
-    }
-
+    const fatturato = readEuro('Fatturato stimato')     || readEuro('Fatturato');
+    const budget    = readEuro('Budget ADV mensile')    || readEuro('Budget');
+    const canone    = readEuro('Canone Suite Digitale') || readEuro('Canone');
+    const roi       = readPerc('ROI previsionale')      || readPerc('ROI');
+    const roas      = readX('ROAS stimato')             || readX('ROAS');
+    let utile       = readEuro('Utile mensile');
+    if(utile==null){ const perd = readEuro('Perdita mensile'); utile = (perd!=null? -Math.abs(perd): null); }
     const channel = readChannel();
     const sector  = readSector();
-
-    return { fatturato, budget, canone, roi, roas, utile, channel, sector };
+    return { fatturato,budget,canone,roi,roas,utile,channel,sector };
   }
-
-  // ====== PROMPTS ======
-  function buildKpiPrompt(k){
-    const clean = (v,unit)=> (v==null?'ND': (unit==='€'?`€ ${v.toLocaleString('it-IT')}`: unit==='%'? `${v.toLocaleString('it-IT')}%` : `${v}`));
-    return (
-`Analizza questi KPI *simulati* e rispondi **al condizionale** in 4–6 punti, brevi ma solidi, con titoletti in **grassetto**:
-- ROI: ${clean(k.roi,'%')}
-- ROAS: ${clean(k.roas,'x')}
-- Fatturato: ${clean(k.fatturato,'€')}
-- Budget ADV: ${clean(k.budget,'€')}
-- Canone Suite Digitale: ${clean(k.canone,'€')}
-- Utile mensile: ${clean(k.utile,'€')}
+  function kpiPrompt(k){
+    const c = (v,u)=> v==null?'ND': (u==='€'?`€ ${v.toLocaleString('it-IT')}`: u==='%'?`${v.toLocaleString('it-IT')}%`:`${v}`);
+    return `Analizza KPI *simulati* e parla **al condizionale**, 4–6 punti con titoletti in **grassetto**:
+- ROI: ${c(k.roi,'%')}
+- ROAS: ${c(k.roas,'x')}
+- Fatturato: ${c(k.fatturato,'€')}
+- Budget ADV: ${c(k.budget,'€')}
+- Canone Suite Digitale: ${c(k.canone,'€')}
+- Utile mensile: ${c(k.utile,'€')}
 - Canale: ${k.channel}
 - Settore: ${k.sector}
 
-Linee guida IMPORTANTI:
-• Spiega i numeri come proiezioni del simulatore: “otterresti, rientrerebbero, si genererebbe…”.
-• Niente tutorial operativi. Valorizza che **Suite Digitale** unirebbe marketing + vendite (strategist, media buyer, CRM specialist, setter/chatter).
-• Evidenzia perché *un team integrato* migliorerebbe coerenza e performance.
-• Se i KPI risultassero critici, non colpevolizzare: parlane con energia e prospettiva.
-• Chiudi SEMPRE con invito alla CTA (senza incollare il link raw nel testo: c’è il bottone in basso).`
-    );
+Ricorda: niente tutorial esecutivi; valorizza **team integrato** (strategist, media buyer, CRM specialist, setter/chatter).  
+Chiudi invitando la CTA in basso (non incollare il link).`;
   }
 
-  // ====== ANALYSE + ASK ======
-  async function analyseKPIsSilently(){
-    const k = readKPIs();
-    // se almeno ROI o ROAS o Budget c'è → procedi
-    const hasAny = [k.fatturato,k.budget,k.canone,k.roi,k.roas,k.utile].some(v=>v!=null);
-    const prompt = hasAny
-      ? buildKpiPrompt(k)
-      : `Non riesco a leggere KPI dal DOM. Parla al condizionale e guida comunque: chiederei all’utente di completare il simulatore (tipo business, settore, clienti/mese, scontrino medio, margine) e premere **Calcola la tua crescita**. Ricorda sempre il valore del team integrato marketing+vendite e la CTA conclusiva.`;
-    await ask(prompt, {silent:true});
-  }
-
+  // --- ASK ------------------------------------------------------------------
   async function ask(text, opts={}){
-    // echo utente (se non silent)
     if(!opts.silent) addME(text);
     setTyping(true);
     try{
-      const r = await fetch(ENDPOINT, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ mode:'analysis', prompt: text })
-      });
+      const r = await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'analysis',prompt:text})});
       const j = await r.json().catch(()=>({}));
-      const out = j.text || j.message || 'Non ho una risposta al momento.';
       setTyping(false);
-      addAI(out);
+      addAI(j.text || j.message || 'Non ho una risposta al momento.');
     }catch(e){
       setTyping(false);
-      // Fallback locale (mai “assistant alive”)
-      addAI(`Non riuscirei a contattare il server in questo momento. In ogni caso, potrei dirti che con un team integrato di strategist, media buyer, CRM specialist e setter telefonici **otterresti** una gestione coordinata dalla campagna alla vendita, evitando dispersioni e tempi morti. Se vuoi, clicca la CTA qui sotto per richiedere un’analisi gratuita: ti mostreremmo dove **potresti** migliorare ROI/ROAS e come impostare una macchina di crescita efficace.`);
+      addAI('Al momento non riuscirei a contattare il server. In ogni caso **potresti** ottenere risultati migliori con un team integrato marketing+vendite. Se vuoi, usa la CTA qui sotto per un’analisi gratuita.');
+    }
+  }
+  async function analyseKPIsSilently(){
+    try{
+      const k = readKPIs();
+      const has = [k.fatturato,k.budget,k.canone,k.roi,k.roas,k.utile].some(v=>v!=null);
+      const p = has ? kpiPrompt(k)
+        : 'Non leggo KPI. Chiederei di completare il simulatore e premere **Calcola la tua crescita**. Poi **potrei** analizzare le proiezioni e proporre i prossimi step con il nostro team integrato. (Chiudi con invito alla CTA).';
+      await ask(p,{silent:true});
+    }catch(e){
+      await ask('Parlerei al condizionale e inviterei a completare il simulatore, poi CTA.',{silent:true});
     }
   }
 
-  // ====== API ======
-  function open(opts={}){
-    mount(); showPanel(); ding(); // suono solo all’apertura
-    if(opts.autostart) ask('Ciao! Se compili il simulatore, ti restituirei un’analisi pronta dei KPI e i prossimi step più intelligenti per crescere.', {silent:true});
-  }
+  // --- API ------------------------------------------------------------------
+  function open(opts={}){ mount(); showPanel(); try{ding();}catch(e){} if(opts.autostart){ ask('Se completi il simulatore, ti restituirei subito un’analisi KPI.',{silent:true}); } }
   function close(){ hidePanel(); }
   async function analyse(){ await analyseKPIsSilently(); }
 
   window.SuiteAssistantChat = { open, close, ask, analyse };
 
-  // monta subito
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', mount); else mount();
   console.log('[SD] sd-chat.js pronto');
 })();
