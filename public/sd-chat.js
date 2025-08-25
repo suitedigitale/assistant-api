@@ -1,4 +1,4 @@
-/* public/sd-chat.js — bubble + UI + welcome affidabile + typing + link bianchi */
+/* public/sd-chat.js — bubble + UI + welcome + typing + link bianchi e cliccabili */
 (function () {
   // ====== CONFIG ======
   const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant';
@@ -54,12 +54,12 @@
   const toHTML = (txt) => {
     let h = escapeHTML(txt||'');
     h = h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>'); // **bold**
-    // markdown link
-    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a target="_blank" rel="noopener">$1</a>');
-    // dedup eventuale
+    // markdown link -> <a href="...">
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // dedup (caso “testo](url) (url)”)
     h = h.replace(/<\/a>\s*\(https?:\/\/[^\s)]+\)/g,'</a>');
-    // URL nudi
-    h = h.replace(/(^|[\s(])(https?:\/\/[^\s)]+)(?=$|[\s)])/g,'$1<a target="_blank" rel="noopener">$2</a>');
+    // URL nudi -> <a href="...">
+    h = h.replace(/(^|[\s(])(https?:\/\/[^\s)]+)(?=$|[\s)])/g,'$1<a href="$2" target="_blank" rel="noopener">$2</a>');
     const blocks = h.split(/\n\n+/).map(b=>{
       if (/^- /m.test(b)) return '<ul>'+b.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
       return '<p>'+b.replace(/\n/g,'<br/>')+'</p>';
@@ -84,7 +84,6 @@
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
     bubble.textContent = '🤖 Assistente AI';
-    // 👉 vogliamo SEMPRE il benvenuto quando si apre a mano
     bubble.onclick = () => { open({ autostart:true }); };
     document.body.appendChild(bubble);
     bubble.style.display = 'inline-flex';
@@ -188,8 +187,9 @@ Benefici: team integrato (strategist, media buyer, CRM, venditori), piattaforma 
 Se ROI/ROAS fossero negativi: rassicura e spiega che in consulenza rivedremmo posizionamento, USP, pricing, margini e conversioni.
 Se fossero positivi: entusiasmati e spiega come **scaleremmo** con controllo KPI.
 Non dare istruzioni operative fai-da-te: focalizza il valore della consulenza.
+Non dire “clicca qui”: dì **“Clicca sul bottone qui sotto”** (la CTA è nel pannello, non incollare link se non richiesti).
 Se la domanda è fuori tema, indica contatti: **marketing@suitedigitale.it** – **+39 351 509 4722**.
-Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** ${CTA_URL}
+Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** (bottone qui sotto).
 `.trim();
 
     try {
@@ -207,7 +207,7 @@ Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** ${CTA_URL}
       setTyping(false);
       addRow('ai',
         `Adesso il server non risponde. Posso comunque darti una panoramica e spiegarti come lavoreremmo insieme.
-**Vuoi andare a fondo con il tuo caso?** Richiedi un’analisi gratuita 👉 ${CTA_URL}`
+**Vuoi andare a fondo con il tuo caso?** Clicca sul bottone qui sotto.`
       );
     }
   }
@@ -215,7 +215,6 @@ Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** ${CTA_URL}
   // ====== API pubbliche ======
   function open(opts={}) {
     mount(); showPanel();
-    // benvenuto una sola volta (o se esplicitamente richiesto)
     if (opts.autostart && !hasWelcomed) {
       hasWelcomed = true;
       addRow('ai',
@@ -235,8 +234,8 @@ Analizza questi **KPI simulati** (proiezione, non risultati reali):
 ROI: ${k.roi ?? 'nd'} | ROAS: ${k.roas ?? 'nd'} | CPL: ${k.cpl ?? 'nd'} | CPA: ${k.cpa ?? 'nd'} | Budget: ${k.budget ?? 'nd'} | Fatturato: ${k.revenue ?? 'nd'} | Utile/Perdita: ${k.profit ?? 'nd'}.
 ${note ? 'Contesto settore: ' + note : ''}
 
-Dammi una valutazione chiara in 4–6 punti **in condizionale**, spiegando come Suite Digitale aiuterebbe (posizionamento, USP, pricing, margini, conversioni).
-Chiudi con **Richiedi un’analisi gratuita 👉** ${CTA_URL}
+Valutazione chiara in 4–6 punti **in condizionale**, spiegando come Suite Digitale aiuterebbe (posizionamento, USP, pricing, margini, conversioni) e come scaleremmo se i numeri fossero buoni.
+Non dire “clicca qui”: dì **“Clicca sul bottone qui sotto”**.
 `.trim();
     ask(prompt, {silent:true, meta:{kpi}});
   }
