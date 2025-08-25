@@ -42,51 +42,35 @@
   #sdw-cta{position:sticky;bottom:0;margin:8px 0;background:#2a1a64;color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;text-align:center;font-weight:800;cursor:pointer}
   #sdw-cta:hover{filter:brightness(1.05)}
   #sdw-bubble{position:fixed;right:22px;bottom:22px;background:var(--sd-accent);color:#fff;border:0;border-radius:999px;padding:12px 16px;box-shadow:0 10px 26px rgba(0,0,0,.35);cursor:pointer;display:none;z-index:999999}
-  a.sdw-link{color:#fff;text-decoration:underline}
+  /* link SEMPRE bianchi */
+  #sdw-panel a, #sdw-panel a:visited { color:#fff !important; text-decoration:underline }
+  a.sdw-link{color:#fff !important;text-decoration:underline}
   .sdw-sugg{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .sdw-chip{background:var(--sd-chip);border:1px solid rgba(255,255,255,.1);padding:8px 12px;border-radius:999px;font-size:13px;color:#dbe0ff;cursor:pointer}
   .sdw-chip:hover{filter:brightness(1.06)}
   `;
   const st = document.createElement('style'); st.id = 'sdw-style'; st.textContent = css; document.head.appendChild(st);
 
-  // ====== tiny helpers ======
+  // ====== helpers ======
   const escapeHTML = (s) => (s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]));
   const toHTML = (txt) => {
-    // 1) normalizza (evita HTML “grezzo” che il modello a volte genera)
     let h = escapeHTML(txt||'');
-
-    // 2) markdown bold **x**
-    h = h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
-
-    // 3) markdown links [testo](url)
-    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a class="sdw-link" target="_blank" rel="noopener">$1</a>');
-
-    // 4) rimuovi eventuale url nudo subito dopo il link markdown (duplicati)
-    h = h.replace(/<\/a>\s*\(https?:\/\/[^\s)]+\)/g,'</a>');
-
-    // 5) url nudi -> a
-    h = h.replace(/(^|[\s(])(https?:\/\/[^\s)]+)(?=$|[\s)])/g,'$1<a class="sdw-link" target="_blank" rel="noopener">$2</a>');
-
-    // 6) linee "- " -> <ul><li>..</li></ul> (solo se ci sono bullet)
+    h = h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');                          // **bold**
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a class="sdw-link" target="_blank" rel="noopener">$1</a>'); // [t](url)
+    h = h.replace(/<\/a>\s*\(https?:\/\/[^\s)]+\)/g,'</a>');                        // dedup nudo dopo markdown
+    h = h.replace(/(^|[\s(])(https?:\/\/[^\s)]+)(?=$|[\s)])/g,'$1<a class="sdw-link" target="_blank" rel="noopener">$2</a>'); // url nudi
     if (/^- /m.test(h)) {
-      // suddividi su blocchi per non “wrappare” testo non-bullet
-      h = h.split(/\n\n+/).map(block=>{
-        if (/^- /m.test(block)) {
-          return '<ul>'+block.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
-        }
-        return '<p>'+block+'</p>';
-      }).join('');
+      h = h.split(/\n\n+/).map(b => /^- /m.test(b) ? '<ul>'+b.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>' : '<p>'+b.replace(/\n/g,'<br/>')+'</p>').join('');
     } else {
-      // paragrafi semplici
       h = h.split(/\n\n+/).map(b=>'<p>'+b.replace(/\n/g,'<br/>')+'</p>').join('');
     }
     return h;
   };
 
-  // suono all’apertura (no typing)
+  // suono all’apertura (typing disattivato)
   function playOpen() {
     try {
-      const a = new Audio('data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA...'); // (beep corto base64 – opzionale)
+      const a = new Audio('data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA'); // beep corto (facoltativo)
       a.volume = 0.15; a.play().catch(()=>{});
     } catch(_) {}
   }
@@ -97,7 +81,7 @@
   function mount() {
     if (root) return;
 
-    // Bubble pronto
+    // Bubble
     bubble = document.createElement('button');
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
@@ -142,54 +126,43 @@
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fire(); } });
   }
 
-  function showPanel(){
-    root.classList.add('sdw-visible');
-    bubble.style.display = 'none';
-    playOpen();
-  }
-  function hidePanel(){
-    root.classList.remove('sdw-visible');
-    bubble.style.display = 'inline-flex';
-  }
+  function showPanel(){ root.classList.add('sdw-visible'); bubble.style.display='none'; playOpen(); }
+  function hidePanel(){ root.classList.remove('sdw-visible'); bubble.style.display='inline-flex'; }
 
-  function addRow(role, html) {
+  function addRow(role, html, {raw=false}={}) {
     const row = document.createElement('div'); row.className = 'sdw-row ' + role;
-    const msg = document.createElement('div'); msg.className = 'sdw-msg'; msg.innerHTML = html;
+    const msg = document.createElement('div'); msg.className = 'sdw-msg';
+    msg.innerHTML = raw ? html : toHTML(html);
     row.appendChild(msg); body.appendChild(row);
     body.scrollTop = body.scrollHeight;
     return row;
   }
+
   function setTyping(on) {
     if (on) {
       if (typingRow) return;
-      typingRow = addRow('typing', toHTML("L'assistente sta scrivendo<span class='dots'></span>"));
+      typingRow = addRow('typing', `L'assistente sta scrivendo <span class="dots"></span>`, {raw:true});
     } else {
       if (typingRow) { typingRow.remove(); typingRow = null; }
     }
   }
+
   function renderSuggestions(items) {
-    // rimuovi precedenti
     if (suggBox && suggBox.parentNode) suggBox.parentNode.removeChild(suggBox);
     if (!items || !items.length) return;
-
-    suggBox = document.createElement('div');
-    suggBox.className = 'sdw-sugg';
+    suggBox = document.createElement('div'); suggBox.className='sdw-sugg';
     items.forEach(t=>{
-      const b = document.createElement('button');
-      b.className = 'sdw-chip';
-      b.type = 'button';
-      b.textContent = t;
-      b.onclick = ()=> { if (suggBox) suggBox.remove(); ask(t, {silent:false}); };
+      const b=document.createElement('button'); b.className='sdw-chip'; b.type='button'; b.textContent=t;
+      b.onclick=()=>{ if (suggBox) suggBox.remove(); ask(t,{silent:false}); };
       suggBox.appendChild(b);
     });
-    body.appendChild(suggBox);
-    body.scrollTop = body.scrollHeight;
+    body.appendChild(suggBox); body.scrollTop=body.scrollHeight;
   }
 
   // ====== Backend call (silente possibile) ======
   async function ask(prompt, opts={silent:false, meta:null}) {
-    if (!opts.silent) addRow('me', toHTML(prompt));
-    renderSuggestions([]); // svuota
+    if (!opts.silent) addRow('me', prompt);
+    renderSuggestions([]);
     setTyping(true);
 
     const CONTEXT = `
@@ -209,29 +182,22 @@ Chiudi SEMPRE con una call to action: **Richiedi un’analisi gratuita 👉** ${
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           mode:'analysis',
-          prompt: prompt,
+          prompt,
           context: CONTEXT,
           meta: opts.meta || null
         })
       });
-      const j = await res.json().catch(() => ({}));
+      const j   = await res.json().catch(()=>({}));
       const out = (j && (j.text || j.message)) ? j.text || j.message : JSON.stringify(j);
       setTyping(false);
-      addRow('ai', toHTML(out));
-
-      // suggerimenti contestuali (semplici)
-      renderSuggestions([
-        'Cos’è Suite Digitale',
-        'Perché scegliere Suite Digitale',
-        'Come prenotare la consulenza'
-      ]);
-
-    } catch (e) {
+      addRow('ai', out);
+      renderSuggestions(['Cos’è Suite Digitale','Perché scegliere Suite Digitale','Come prenotare la consulenza']);
+    } catch(e) {
       setTyping(false);
-      addRow('ai', toHTML(
+      addRow('ai',
         `In questo momento il server non risponde. Posso comunque aiutarti con una panoramica sui KPI e su come lavoreremmo insieme.
 **Vuoi andare a fondo con il tuo caso?** Richiedi un’analisi gratuita 👉 ${CTA_URL}`
-      ));
+      );
     }
   }
 
@@ -239,14 +205,11 @@ Chiudi SEMPRE con una call to action: **Richiedi un’analisi gratuita 👉** ${
   function open(opts={}) {
     mount(); showPanel();
     if (opts.autostart) {
-      const msg = `Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**. 
-Intanto sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`;
-      addRow('ai', toHTML(msg));
-      renderSuggestions([
-        'Cos’è Suite Digitale',
-        'Perché scegliere Suite Digitale',
-        'Come prenotare la consulenza'
-      ]);
+      addRow('ai',
+        `Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**.  
+Intanto sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`
+      );
+      renderSuggestions(['Cos’è Suite Digitale','Perché scegliere Suite Digitale','Come prenotare la consulenza']);
     }
   }
   function close(){ hidePanel(); }
@@ -268,7 +231,6 @@ Chiudi con **Richiedi un’analisi gratuita 👉** ${CTA_URL}
 
   window.SuiteAssistantChat = { open, close, ask, analyseKPIsSilently };
 
-  // bubble sempre pronto
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
 
