@@ -1,4 +1,4 @@
-/* public/sd-chat.js — bubble + UI + typing + link bianchi cliccabili + “leggi di più” */
+/* public/sd-chat.js — bubble + UI + welcome affidabile + typing + link bianchi */
 (function () {
   // ====== CONFIG ======
   const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant';
@@ -53,10 +53,13 @@
   const escapeHTML = (s) => (s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]));
   const toHTML = (txt) => {
     let h = escapeHTML(txt||'');
-    h = h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');                                     // **bold**
-    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a target="_blank" rel="noopener">$1</a>'); // [t](url)
-    h = h.replace(/<\/a>\s*\(https?:\/\/[^\s)]+\)/g,'</a>');                                   // dedup
-    h = h.replace(/(^|[\s(])(https?:\/\/[^\s)]+)(?=$|[\s)])/g,'$1<a target="_blank" rel="noopener">$2</a>'); // nudi
+    h = h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>'); // **bold**
+    // markdown link
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a target="_blank" rel="noopener">$1</a>');
+    // dedup eventuale
+    h = h.replace(/<\/a>\s*\(https?:\/\/[^\s)]+\)/g,'</a>');
+    // URL nudi
+    h = h.replace(/(^|[\s(])(https?:\/\/[^\s)]+)(?=$|[\s)])/g,'$1<a target="_blank" rel="noopener">$2</a>');
     const blocks = h.split(/\n\n+/).map(b=>{
       if (/^- /m.test(b)) return '<ul>'+b.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
       return '<p>'+b.replace(/\n/g,'<br/>')+'</p>';
@@ -72,6 +75,7 @@
 
   // ====== UI ======
   let root, body, input, sendBtn, ctaBtn, bubble, typingRow, suggBox;
+  let hasWelcomed = false;
 
   function mount() {
     if (root) return;
@@ -80,7 +84,8 @@
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
     bubble.textContent = '🤖 Assistente AI';
-    bubble.onclick = () => { open({ autostart:false }); };
+    // 👉 vogliamo SEMPRE il benvenuto quando si apre a mano
+    bubble.onclick = () => { open({ autostart:true }); };
     document.body.appendChild(bubble);
     bubble.style.display = 'inline-flex';
 
@@ -115,6 +120,9 @@
     };
     sendBtn.onclick = fire;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fire(); } });
+
+    // segnala ai trigger che la chat è pronta
+    setTimeout(()=>document.dispatchEvent(new CustomEvent('SuiteAssistantReady')),0);
   }
 
   function showPanel(){ root.classList.add('sdw-visible'); bubble.style.display='none'; playOpen(); }
@@ -123,7 +131,6 @@
   function addRow(role, html, {raw=false}={}) {
     const row = document.createElement('div'); row.className = 'sdw-row ' + role;
     const msg = document.createElement('div'); msg.className = 'sdw-msg';
-    // wrap content -> per clamp
     msg.innerHTML = raw ? `<div class="sdw-content">${html}</div>` : `<div class="sdw-content">${toHTML(html)}</div>`;
     row.appendChild(msg); body.appendChild(row);
     body.scrollTop = body.scrollHeight;
@@ -152,7 +159,6 @@
     body.appendChild(suggBox); body.scrollTop=body.scrollHeight;
   }
 
-  // clamp per testi lunghi
   function maybeClamp(el){
     requestAnimationFrame(()=>{
       if (!el) return;
@@ -178,7 +184,7 @@
     const CONTEXT = `
 Sei l’Assistente AI di **Suite Digitale**.
 Parla con tono amichevole, energico e in **condizionale** (sono proiezioni del simulatore).
-Ricorda i benefici: team integrato (strategist, media buyer, CRM, venditori), piattaforma all-in-one, funnel e automazioni.
+Benefici: team integrato (strategist, media buyer, CRM, venditori), piattaforma all-in-one, funnel e automazioni.
 Se ROI/ROAS fossero negativi: rassicura e spiega che in consulenza rivedremmo posizionamento, USP, pricing, margini e conversioni.
 Se fossero positivi: entusiasmati e spiega come **scaleremmo** con controllo KPI.
 Non dare istruzioni operative fai-da-te: focalizza il valore della consulenza.
@@ -206,14 +212,16 @@ Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** ${CTA_URL}
     }
   }
 
-  // ====== API pubbliche per i trigger ======
+  // ====== API pubbliche ======
   function open(opts={}) {
     mount(); showPanel();
-    if (opts.autostart) {
+    // benvenuto una sola volta (o se esplicitamente richiesto)
+    if (opts.autostart && !hasWelcomed) {
+      hasWelcomed = true;
       addRow('ai',
-        `Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**.  
-Intanto sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`
-      );
+`Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**.  
+Nel frattempo sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.  
+**Quando fai il calcolo, ti restituisco un’analisi istantanea dei numeri simulati.**`);
       renderSuggestions(['Cos’è Suite Digitale','Perché scegliere Suite Digitale','Come prenotare la consulenza']);
     }
   }
