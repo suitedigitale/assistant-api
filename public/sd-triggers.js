@@ -1,129 +1,106 @@
-/* public/sd-triggers.js — Bridge affidabile KPI -> Chat
-   - Ascolta SD_KPI (postMessage o CustomEvent)
-   - Normalizza i numeri e chiama analyseKPIsSilently(kpi, context)
-   - Fallback: prova a reagire al click su "Calcola la tua crescita"
-*/
+/* public/sd-triggers.js — apre la chat al calcolo e invia i KPI reali letti dal simulatore */
 (function () {
-  const W = window;
+  // ====== Selettori del simulatore ======
+  const BTN_CALCOLA = '#calcolaBtn';
 
-  function onReady(fn){
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
-    else fn();
-  }
-
-  // ---------------- normalizzatori ----------------
-  function toNum(raw){
-    if (raw==null) return null;
-    let s = String(raw).trim();
-    // percentuali tipo "-95,36%" -> "-95,36"
-    s = s.replace(/%/g,'');
-    // roas tipo "0,2x" -> "0,2"
-    s = s.replace(/x/gi,'');
-    // valuta: toglie € e spazi
-    s = s.replace(/[€\s]/g,'');
-    // separatori decimali IT -> EN
-    s = s.replace(/\./g,'').replace(/,/g,'.');
-    // pulizia finale
-    s = s.replace(/[^\d.\-]/g,'');
-    if (!s || s === '.' || s === '-' ) return null;
-    const n = Number(s);
-    return isFinite(n) ? n : null;
-  }
-
-  function normalizeKPI(obj){
-    if (!obj) return {};
-    const out = {};
-    const map = {
-      revenue:'revenue', fatturato:'revenue',
-      budget:'budget',   budget_adv:'budget',
-      roi:'roi',
-      roas:'roas',
-      cpl:'cpl',
-      cpa:'cpa',
-      profit:'profit', utile:'profit', perdita:'profit'
-    };
-    for (const k in obj){
-      const key = map[k] || k;
-      const val = toNum(obj[k]);
-      if (val!=null) out[key] = val;
-    }
-    // se è una perdita assicurati che il segno sia negativo quando coerente
-    if (obj.perdita!=null && out.profit!=null) out.profit = -Math.abs(out.profit);
-    return out;
-  }
-
-  function contextToNote(ctx){
-    if (!ctx) return '';
-    if (typeof ctx === 'string') return ctx;
-    const bits = [];
-    if (ctx.sector) bits.push(`Settore: ${ctx.sector}`);
-    if (ctx.channel) bits.push(`Target: ${ctx.channel}`);
-    if (ctx.note) bits.push(ctx.note);
-    return bits.join(' · ');
-  }
-
-  function openAndAnalyse(kpi, ctxNote){
-    if (!W.SuiteAssistantChat) return;
-    try {
-      // mostra pannello e analizza (messaggio "silente")
-      W.SuiteAssistantChat.analyseKPIsSilently(kpi, ctxNote || '');
-    } catch (e) {
-      console.warn('[SD triggers] analyse error', e);
-    }
-  }
-
-  // ---------------- Bridge: due modi equivalenti ----------------
-  // 1) postMessage dal simulatore
-  W.addEventListener('message', (ev) => {
-    const d = ev.data || {};
-    if (d && d.type === 'SD_KPI' && d.payload){
-      const kpi = normalizeKPI(d.payload);
-      const note = contextToNote(d.context || d.contextNote);
-      openAndAnalyse(kpi, note);
-    }
-  });
-
-  // 2) CustomEvent('SD_KPI', { detail:{ kpi, context } })
-  document.addEventListener('SD_KPI', (ev) => {
-    const det = (ev && ev.detail) || {};
-    const kpi = normalizeKPI(det.kpi || det.payload);
-    const note = contextToNote(det.context);
-    openAndAnalyse(kpi, note);
-  });
-
-  // Espone una API manuale se vuoi chiamarla da console/test
-  W.SuiteAssistantChatBridge = {
-    sendKPI(kpi, context){
-      const kk = normalizeKPI(kpi);
-      openAndAnalyse(kk, contextToNote(context));
-    }
+  // Mappa ID → nome campo che mandiamo all’assistente
+  const KPI_MAP = {
+    revenue:            '#fatturatoKPI',            // Fatturato stimato
+    budget:             '#budgetKPI',               // Budget ADV mensile
+    canone:             '#canoneSuiteDigitaleKPI',  // Canone Suite Digitale
+    roi:                '#roiKPI',                  // ROI previsionale (%)
+    roas:               '#roasKPI',                 // ROAS stimato (x)
+    profit:             '#utilePerditaKPI',         // Utile/Perdita mensile
+    cpl:                '#cplKPI',                  // CPL stimato
+    cpa:                '#cpaKPI',                  // CPA stimato
+    lead:               '#leadKPI',                 // Lead stimati
+    appointments:       '#appuntamentiKPI',         // Appuntamenti di vendita
+    convLeadApp:        '#convLeadAppKPI',          // Conv. Lead/Appuntamenti (%)
+    convAppCliente:     '#convAppClienteKPI'        // Conv. Appunt./Clienti (%)
   };
 
-  // ---------------- Fallback "Calcola la tua crescita" ----------------
-  function wireCalcButton(){
-    const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'))
-      .filter(b => /calcola\s+la\s+tua\s+crescita/i.test(b.textContent||''));
-    btns.forEach(b=>{
-      if (b.__sdwired) return;
-      b.__sdwired = 1;
-      b.addEventListener('click', () => {
-        // il simulatore dovrebbe emettere SD_KPI; in mancanza proviamo ad aprire soltanto
-        setTimeout(() => {
-          if (W.SuiteAssistantChat) W.SuiteAssistantChat.open({ autostart: false });
-        }, 150);
-      });
+  // ====== Helpers ======
+  // Prende un numero da dataset.target se c’è; altrimenti dal testo (toglie € . , spazi)
+  function readNumber(sel) {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    if (el.dataset && el.dataset.target != null) {
+      const v = parseFloat(String(el.dataset.target).replace(',', '.'));
+      if (!Number.isNaN(v)) return v;
+    }
+    let raw = (el.textContent || '').trim();
+    raw = raw.replace(/[^\d,.\-]/g, '').replace(/\./g, '').replace(',', '.'); // “1.234,56” → “1234.56”
+    const num = parseFloat(raw);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  // Legge tutti i KPI disponibili
+  function collectKPI() {
+    const k = {};
+    for (const [key, sel] of Object.entries(KPI_MAP)) {
+      const v = readNumber(sel);
+      if (v != null) k[key] = v;
+    }
+    // pulizia: non mandare CPL/CPA se mancano o sono 0
+    if (!(k.cpl > 0)) delete k.cpl;
+    if (!(k.cpa > 0)) delete k.cpa;
+    return k;
+  }
+
+  // Contesto utile all’AI (per parlare al condizionale e “settoriale”)
+  function collectContext() {
+    const getVal = (q) => (document.querySelector(q) || {}).value || '';
+    const toInt  = (q) => parseInt((document.querySelector(q) || {}).value || '0', 10) || 0;
+    return {
+      tipo: getVal('#tipoBusiness'),         // B2B / B2C
+      settore: getVal('#settore'),
+      funnel: toInt('#funnel'),
+      clienti_mensili: toInt('#clienti'),
+      mol_percent: toInt('#mol'),
+      scontrino_index: toInt('#scontrino')
+    };
+  }
+
+  // Aspetta che il simulatore abbia impostato i dataset.target (dopo il click)
+  function waitKPIReady(timeoutMs = 2500) {
+    const started = Date.now();
+    return new Promise((resolve) => {
+      (function tick() {
+        const ok =
+          (document.querySelector('#fatturatoKPI')?.dataset?.target != null) ||
+          (document.querySelector('#result') && document.querySelector('#result').style.display === 'block');
+        if (ok) return resolve(true);
+        if (Date.now() - started > timeoutMs) return resolve(false);
+        requestAnimationFrame(tick);
+      })();
     });
   }
 
-  onReady(()=>{
-    wireCalcButton();
-    // rewire per SPA
-    let tries = 0;
-    const id = setInterval(()=>{
-      if (++tries>40) return clearInterval(id);
-      wireCalcButton();
-    }, 700);
-  });
+  async function onCalcolaClick() {
+    // diamo tempo al simulatore di calcolare/aggiornare i dataset
+    setTimeout(async () => {
+      await waitKPIReady(2500);
+      const kpi = collectKPI();
+      const ctx = collectContext();
 
-  console.log('[SD] triggers bridge pronto');
+      if (!window.SuiteAssistantChat) return;
+      // Apri la chat (resta in silenzioso: l’utente non vede un input “finto”)
+      window.SuiteAssistantChat.open({ autostart: false });
+      window.SuiteAssistantChat.analyseKPIsSilently(kpi, JSON.stringify(ctx));
+    }, 350);
+  }
+
+  function bind() {
+    const btn = document.querySelector(BTN_CALCOLA);
+    if (btn && !btn.__sd_bind) {
+      btn.__sd_bind = 1;
+      btn.addEventListener('click', onCalcolaClick);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
 })();
