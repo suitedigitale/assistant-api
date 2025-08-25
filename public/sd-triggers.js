@@ -1,74 +1,107 @@
-/* public/sd-triggers.js — apre SOLO su “Calcola la tua crescita” e invia KPI, evitando 0 fasulli */
+/* public/sd-triggers.js — apre SOLO su “Calcola la tua crescita”, legge KPI dal box risultati, evita 0 fasulli */
 (function () {
-  // --- numerico (accetta "€ 1.590", "-95,36%", "0,2x")
-  function num(s) {
+  // ---- numerico robusto
+  function parseNum(s) {
     if (s == null) return null;
-    // estrai primo numero plausibile (anche % o x)
     const raw = (s+'').match(/-?\d+(?:[.,]\d+)?/);
     if (!raw) return null;
     const t = raw[0].replace(/\./g,'').replace(',', '.');
     const n = parseFloat(t);
-    if (!isFinite(n)) return null;
-    // scarta 0 "falso" (se non siamo sicuri, meglio null)
-    return Math.abs(n) < 1e-9 ? null : n;
+    return isFinite(n) ? n : null;
+  }
+  const num = (s) => {
+    const n = parseNum(s);
+    // se non trovato, o roba sporca, torna null (evita 0 inventati)
+    if (n == null) return null;
+    return n;
+  };
+
+  // ---- trova il contenitore risultati per limitare la lettura
+  const RESULTS_SELECTORS = ['#kpi-results', '.kpi-results', '#risultati', '[data-kpi="results"]', '#sd-results'];
+
+  function resultsRoot() {
+    for (const sel of RESULTS_SELECTORS) {
+      const el = document.querySelector(sel);
+      if (el) return el;
+    }
+    // fallback: se non c’è un container, usa il documento (meno preciso)
+    return document;
   }
 
-  // --- text by common ids / data-* / name
-  function byIds(ids) {
-    for (const id of ids) {
-      const el = document.getElementById(id) ||
-                 document.querySelector(`[data-kpi="${id}"]`) ||
-                 document.querySelector(`[name="${id}"]`);
-      const t  = el && (el.textContent || el.value || '').trim();
+  // ---- dentro root: cerca per id/data-kpi, poi per etichetta vicina
+  function pickByIdOrData(root, keys) {
+    for (const k of keys) {
+      let el = root.querySelector(`#${k}`) ||
+               root.querySelector(`[data-kpi="${k}"]`) ||
+               root.querySelector(`[name="${k}"]`) ||
+               root.querySelector(`[id*="${k}"]`);
+      const t = el && (el.textContent || el.value || '').trim();
       if (t) return t;
     }
     return null;
   }
 
-  // --- fallback cercando vicino a etichette
-  function pickByLabel(...labels) {
-    const nodes = Array.from(document.querySelectorAll('section,div,li,p,span,h1,h2,h3,td,th'));
-    for (const n of nodes) {
+  function pickNearLabel(root, labels) {
+    const all = Array.from(root.querySelectorAll('div,section,article,li,p,span,td,th,h1,h2,h3'));
+    for (const n of all) {
       const tx = (n.textContent||'').toLowerCase();
-      if (!labels.some(l=>tx.includes(l))) continue;
-      // cerca un valore qui o nel vicino
-      const near = n.nextElementSibling?.textContent || n.parentElement?.textContent || n.textContent || '';
-      const raw = near.trim();
-      const m = raw.match(/-?\€?\s?[\d\.\,]+%?|[-]?\d+([.,]\d+)?x/gi);
-      if (m && m[0]) return m[0];
+      if (!labels.some(l => tx.includes(l))) continue;
+      // prova: dentro lo stesso blocco trova il primo numero “credibile”
+      const card = n.closest('[class*="card"],[class*="box"],[class*="kpi"],[class*="result"],section,div') || n.parentElement || n;
+      const txt = (card.textContent||'').trim();
+      const m = txt.match(/-?\d+(?:[.,]\d+)?\s?(?:%|x)?|€\s?[\d\.\,]+/g);
+      if (m && m.length) return m[0];
     }
     return null;
   }
 
   function readKPI() {
-    // Prova ID noti → poi fallback etichette italiane
-    const roiTxt  = byIds(['roiKPI','roi'])       || pickByLabel('roi previs', 'roi');
-    const roasTxt = byIds(['roasKPI','roas'])     || pickByLabel('roas');
-    const budTxt  = byIds(['budgetKPI','bud'])    || pickByLabel('budget adv','budget mensile','budget');
-    const revTxt  = byIds(['fatturatoKPI','fat']) || pickByLabel('fatturato stim','fatturato');
-    const proTxt  = byIds(['profittoKPI','utileKPI','perditaKPI']) || pickByLabel('utile mensile','perdita mensile','utile/perdita');
-    // CPL / CPA con sinonimi
-    const cplTxt  = byIds(['cplKPI','cpl'])       || pickByLabel('cpl','costo per lead','costo contatto');
-    const cpaTxt  = byIds(['cpaKPI','cpa'])       || pickByLabel('cpa','costo per acquisizione','costo cliente');
+    const root = resultsRoot();
 
-    const roi   = num(roiTxt);
-    const roas  = num(roasTxt);
-    const bud   = num(budTxt);
-    const rev   = num(revTxt);
-    const prof  = num(proTxt);
-    const cpl   = num(cplTxt);
-    const cpa   = num(cpaTxt);
+    // Preferisci ID/data-kpi noti
+    const roiTxt  = pickByIdOrData(root, ['roiKPI','roi'])           || pickNearLabel(root, ['roi previs', 'roi']);
+    const roasTxt = pickByIdOrData(root, ['roasKPI','roas'])         || pickNearLabel(root, ['roas']);
+    const budTxt  = pickByIdOrData(root, ['budgetKPI','bud'])        || pickNearLabel(root, ['budget adv','budget mensile','budget']);
+    const revTxt  = pickByIdOrData(root, ['fatturatoKPI','fat'])     || pickNearLabel(root, ['fatturato stim','fatturato']);
+    const canTxt  = pickByIdOrData(root, ['canoneSuiteDigitaleKPI','can']) || pickNearLabel(root, ['canone']);
+    const proTxt  = pickByIdOrData(root, ['utileKPI','profittoKPI','perditaKPI']) || pickNearLabel(root, ['utile mensile','perdita mensile','utile/perdita']);
+    const cplTxt  = pickByIdOrData(root, ['cplKPI','cpl'])           || pickNearLabel(root, ['cpl','costo per lead','costo contatto']);
+    const cpaTxt  = pickByIdOrData(root, ['cpaKPI','cpa'])           || pickNearLabel(root, ['cpa','costo per acquisizione','costo cliente']);
 
-    return {
-      roi:     (typeof roi  === 'number') ? roi  : null,
-      roas:    (typeof roas === 'number') ? roas : null,
-      budget:  (typeof bud  === 'number') ? bud  : null,
-      revenue: (typeof rev  === 'number') ? rev  : null,
-      profit:  (typeof prof === 'number') ? prof : null,
-      // SOLO se letti: altrimenti null → non verranno analizzati
-      cpl:     (typeof cpl  === 'number') ? cpl  : null,
-      cpa:     (typeof cpa  === 'number') ? cpa  : null
+    // parse
+    const cleanPercent = (t) => {
+      if (!t) return null;
+      const n = num(t);
+      return n == null ? null : n; // lascio in %
     };
+    const cleanRoas = (t) => {
+      if (!t) return null;
+      // “0,2x”, “5 x” → numero
+      const n = num(t);
+      return n == null ? null : n;
+    };
+    const cleanMoney = (t) => {
+      if (!t) return null;
+      const n = num(t);
+      return n == null ? null : n; // lascio “numero” (senza €)
+    };
+
+    const k = {
+      roi:     cleanPercent(roiTxt),
+      roas:    cleanRoas(roasTxt),
+      budget:  cleanMoney(budTxt),
+      revenue: cleanMoney(revTxt),
+      profit:  cleanMoney(proTxt),
+      cpl:     (cplTxt ? cleanMoney(cplTxt) : null),
+      cpa:     (cpaTxt ? cleanMoney(cpaTxt) : null),
+      canone:  cleanMoney(canTxt)
+    };
+
+    // non inviare CPL/CPA se null (evita 0 sballati)
+    if (k.cpl == null) delete k.cpl;
+    if (k.cpa == null) delete k.cpa;
+
+    return k;
   }
 
   function sectorContext() {
@@ -97,19 +130,21 @@
     return t.includes('calcola') && (t.includes('cresc') || t.includes('risult') || t.includes('tua crescita'));
   }
 
-  // arm solo dopo click → niente auto-open su page load
+  // apre SOLO dopo click: niente auto-open su page load
   let armed = false;
 
   function openAndAnalyseWithRetry() {
-    armed = true; // abilita lettura
+    armed = true;
     runOrQueue(()=> window.SuiteAssistantChat.open({autostart:true}));
 
-    let tries = 18; // ~18*180ms ≈ 3.2s
+    let tries = 22; // ~22*180ms ≈ 4s
     (function tick(){
       if (!armed) return;
       const k = readKPI();
-      // “pronto” se almeno ROI è numerico (evita 0/null fasulli)
-      if (k && typeof k.roi === 'number') {
+      // pronto se almeno ROI o ROAS o Fatturato o Budget sono numeri
+      const ready = ['roi','roas','revenue','budget','profit'].some(key => typeof k[key] === 'number');
+      if (ready) {
+        armed = false;
         runOrQueue(()=> window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext()));
         return;
       }
@@ -127,7 +162,7 @@
     });
   }
 
-  // delega globale (pulsanti creati dopo)
+  // delega globale
   function delegateClicks() {
     document.addEventListener('click', (e)=>{
       const el = e.target.closest('button, a, [role="button"], .btn, .button, input[type="submit"], #calcolaBtn, [data-cta="calcola"]');
@@ -136,27 +171,9 @@
     }, true);
   }
 
-  // rimuoviamo l’auto-analisi via MutationObserver all’avvio:
-  // la faremo SOLO se l’utente ha cliccato calcola (armed = true)
-  function observeResultsAfterClick() {
-    const mo = new MutationObserver(()=>{
-      if (!armed) return;
-      const k = readKPI();
-      if (k && typeof k.roi === 'number') {
-        armed = false; // una volta letti, disarma
-        runOrQueue(()=> {
-          window.SuiteAssistantChat.open({autostart:true});
-          window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext());
-        });
-      }
-    });
-    mo.observe(document.documentElement, { childList:true, subtree:true, characterData:true });
-  }
-
   function boot() {
     attachToExistingButtons();
     delegateClicks();
-    observeResultsAfterClick();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
