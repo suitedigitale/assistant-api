@@ -1,179 +1,103 @@
-/* public/sd-triggers.js — apre SOLO su “Calcola la tua crescita”, legge KPI dal box risultati, evita 0 fasulli */
+/* public/sd-triggers.js — apre su “Calcola la tua crescita” e legge KPI in modo robusto */
 (function () {
-  // ---- numerico robusto
-  function parseNum(s) {
-    if (s == null) return null;
-    const raw = (s+'').match(/-?\d+(?:[.,]\d+)?/);
-    if (!raw) return null;
-    const t = raw[0].replace(/\./g,'').replace(',', '.');
-    const n = parseFloat(t);
-    return isFinite(n) ? n : null;
+
+  // --- utili parsing ---
+  function numFrom(text){
+    if (!text) return null;
+    const t = (text+'').replace(/\s/g,'').replace(/[€x]/g,'');
+    // “-95,36%” -> -95.36 | “1.590” -> 1590
+    const normalized = t.replace(/\./g,'').replace(',', '.');
+    const m = normalized.match(/-?\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : null;
   }
-  const num = (s) => {
-    const n = parseNum(s);
-    // se non trovato, o roba sporca, torna null (evita 0 inventati)
-    if (n == null) return null;
-    return n;
-  };
-
-  // ---- trova il contenitore risultati per limitare la lettura
-  const RESULTS_SELECTORS = ['#kpi-results', '.kpi-results', '#risultati', '[data-kpi="results"]', '#sd-results'];
-
-  function resultsRoot() {
-    for (const sel of RESULTS_SELECTORS) {
-      const el = document.querySelector(sel);
-      if (el) return el;
+  function findByLabel(label){
+    const nodes = Array.from(document.querySelectorAll('div,span,td,th,p,li'));
+    const hit = nodes.find(n => n.textContent && n.textContent.trim().toLowerCase().includes(label));
+    if (!hit) return null;
+    // prova a leggere numero nel blocco vicino
+    const box = hit.closest('div') || hit.parentElement;
+    const cand = (box ? Array.from(box.querySelectorAll('*')) : [])
+      .concat(hit.nextElementSibling ? [hit.nextElementSibling] : []);
+    for (const el of cand){
+      const v = numFrom(el.textContent);
+      if (v !== null) return v;
     }
-    // fallback: se non c’è un container, usa il documento (meno preciso)
-    return document;
+    // fallback: direttamente dal testo del label
+    const v = numFrom(hit.textContent);
+    return v;
   }
 
-  // ---- dentro root: cerca per id/data-kpi, poi per etichetta vicina
-  function pickByIdOrData(root, keys) {
-    for (const k of keys) {
-      let el = root.querySelector(`#${k}`) ||
-               root.querySelector(`[data-kpi="${k}"]`) ||
-               root.querySelector(`[name="${k}"]`) ||
-               root.querySelector(`[id*="${k}"]`);
-      const t = el && (el.textContent || el.value || '').trim();
-      if (t) return t;
+  function readKPIs(){
+    // preferisci badges in alto, poi le card interne
+    const all = Array.from(document.querySelectorAll('div,span'));
+    let roi=null, roas=null, revenue=null, budget=null, fee=null, profit=null, cpl=null, cpa=null;
+
+    // STRISCIA ALTA
+    all.forEach(n=>{
+      const t=(n.textContent||'').trim();
+      if (/^ROI:/i.test(t)) roi = numFrom(t);
+      if (/^Fatturato:/i.test(t)) revenue = numFrom(t);
+      if (/^(Utile|Perdita):/i.test(t)) profit = numFrom(t);
+    });
+
+    // CARD INTERNE (fallback)
+    if (revenue==null) revenue = findByLabel('fatturato stimato');
+    if (budget ==null) budget  = findByLabel('budget adv mensile');
+    if (fee    ==null) fee     = findByLabel('canone suite digitale');
+    if (roi    ==null) roi     = findByLabel('roi previsionale');
+    if (roas   ==null) roas    = findByLabel('roas stimato');
+    if (profit ==null) profit  = findByLabel('perdita mensile') ?? findByLabel('utile mensile');
+    // CPL/CPA (se non ci sono, lasciamo null)
+    cpl = findByLabel('cpl stimato');
+    cpa = findByLabel('cpa stimato');
+
+    return { roi, roas, revenue, budget, fee, profit, cpl, cpa };
+  }
+
+  function openAndAnalyse(note){
+    const ok = window.SuiteAssistantChat && window.SuiteAssistantChat.analyseKPIsSilently;
+    if (!ok) return false;
+    const kpi = readKPIs();
+    // se troviamo solo ROI ma tutto il resto è null, non forziamo l’analisi
+    const values = Object.values(kpi).filter(v=>v!=null);
+    if (values.length < 2) { // quasi vuoto: meglio accoglienza standard
+      window.SuiteAssistantChat.open({autostart:true});
+      return true;
     }
-    return null;
+    window.SuiteAssistantChat.analyseKPIsSilently(kpi, note || '');
+    return true;
   }
 
-  function pickNearLabel(root, labels) {
-    const all = Array.from(root.querySelectorAll('div,section,article,li,p,span,td,th,h1,h2,h3'));
-    for (const n of all) {
-      const tx = (n.textContent||'').toLowerCase();
-      if (!labels.some(l => tx.includes(l))) continue;
-      // prova: dentro lo stesso blocco trova il primo numero “credibile”
-      const card = n.closest('[class*="card"],[class*="box"],[class*="kpi"],[class*="result"],section,div') || n.parentElement || n;
-      const txt = (card.textContent||'').trim();
-      const m = txt.match(/-?\d+(?:[.,]\d+)?\s?(?:%|x)?|€\s?[\d\.\,]+/g);
-      if (m && m.length) return m[0];
-    }
-    return null;
+  function afterCalcHandler(){
+    openAndAnalyse('Analisi generata dopo “Calcola la tua crescita”.');
   }
 
-  function readKPI() {
-    const root = resultsRoot();
-
-    // Preferisci ID/data-kpi noti
-    const roiTxt  = pickByIdOrData(root, ['roiKPI','roi'])           || pickNearLabel(root, ['roi previs', 'roi']);
-    const roasTxt = pickByIdOrData(root, ['roasKPI','roas'])         || pickNearLabel(root, ['roas']);
-    const budTxt  = pickByIdOrData(root, ['budgetKPI','bud'])        || pickNearLabel(root, ['budget adv','budget mensile','budget']);
-    const revTxt  = pickByIdOrData(root, ['fatturatoKPI','fat'])     || pickNearLabel(root, ['fatturato stim','fatturato']);
-    const canTxt  = pickByIdOrData(root, ['canoneSuiteDigitaleKPI','can']) || pickNearLabel(root, ['canone']);
-    const proTxt  = pickByIdOrData(root, ['utileKPI','profittoKPI','perditaKPI']) || pickNearLabel(root, ['utile mensile','perdita mensile','utile/perdita']);
-    const cplTxt  = pickByIdOrData(root, ['cplKPI','cpl'])           || pickNearLabel(root, ['cpl','costo per lead','costo contatto']);
-    const cpaTxt  = pickByIdOrData(root, ['cpaKPI','cpa'])           || pickNearLabel(root, ['cpa','costo per acquisizione','costo cliente']);
-
-    // parse
-    const cleanPercent = (t) => {
-      if (!t) return null;
-      const n = num(t);
-      return n == null ? null : n; // lascio in %
-    };
-    const cleanRoas = (t) => {
-      if (!t) return null;
-      // “0,2x”, “5 x” → numero
-      const n = num(t);
-      return n == null ? null : n;
-    };
-    const cleanMoney = (t) => {
-      if (!t) return null;
-      const n = num(t);
-      return n == null ? null : n; // lascio “numero” (senza €)
-    };
-
-    const k = {
-      roi:     cleanPercent(roiTxt),
-      roas:    cleanRoas(roasTxt),
-      budget:  cleanMoney(budTxt),
-      revenue: cleanMoney(revTxt),
-      profit:  cleanMoney(proTxt),
-      cpl:     (cplTxt ? cleanMoney(cplTxt) : null),
-      cpa:     (cpaTxt ? cleanMoney(cpaTxt) : null),
-      canone:  cleanMoney(canTxt)
-    };
-
-    // non inviare CPL/CPA se null (evita 0 sballati)
-    if (k.cpl == null) delete k.cpl;
-    if (k.cpa == null) delete k.cpa;
-
-    return k;
-  }
-
-  function sectorContext() {
-    const sector = Array.from(document.querySelectorAll('select,[data-field="settore"],[data-name="settore"],[class*="settore"]'))
-      .map(n=>n.value || n.getAttribute('value') || n.textContent).find(Boolean);
-    const b2 = (document.body.textContent||'').match(/\bB2B|B2C\b/i)?.[0] || '';
-    return [sector, b2].filter(Boolean).join(' - ');
-  }
-
-  // coda se la chat non è pronta
-  window.__sdQueue = window.__sdQueue || [];
-  function runOrQueue(fn){
-    if (window.SuiteAssistantChat && window.SuiteAssistantChat.analyseKPIsSilently) fn();
-    else window.__sdQueue.push(fn);
-  }
-  document.addEventListener('SuiteAssistantReady', ()=>{
-    const q = window.__sdQueue.splice(0);
-    q.forEach(fn=>{ try{ fn(); }catch(_){} });
-  });
-
-  // riconosci “Calcola la tua crescita”
-  function isCalcElement(el) {
-    if (!el) return false;
-    if (el.id && el.id.toLowerCase() === 'calcolabtn') return true;
-    const t = (el.innerText || el.textContent || '').toLowerCase().replace(/\s+/g,' ');
-    return t.includes('calcola') && (t.includes('cresc') || t.includes('risult') || t.includes('tua crescita'));
-  }
-
-  // apre SOLO dopo click: niente auto-open su page load
-  let armed = false;
-
-  function openAndAnalyseWithRetry() {
-    armed = true;
-    runOrQueue(()=> window.SuiteAssistantChat.open({autostart:true}));
-
-    let tries = 22; // ~22*180ms ≈ 4s
-    (function tick(){
-      if (!armed) return;
-      const k = readKPI();
-      // pronto se almeno ROI o ROAS o Fatturato o Budget sono numeri
-      const ready = ['roi','roas','revenue','budget','profit'].some(key => typeof k[key] === 'number');
-      if (ready) {
-        armed = false;
-        runOrQueue(()=> window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext()));
-        return;
+  function bindCalcButtons(){
+    const candidates = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"]'));
+    candidates.forEach(el=>{
+      const t = (el.innerText || el.value || '').toLowerCase();
+      if (/calcola la tua crescita/.test(t) && !el.__sdw){
+        el.__sdw = 1;
+        el.addEventListener('click', ()=>{
+          // aspetta il rendering KPI
+          setTimeout(afterCalcHandler, 650);
+        });
       }
-      if (--tries > 0) setTimeout(tick, 180);
-    })();
-  }
-
-  function attachToExistingButtons() {
-    const els = Array.from(document.querySelectorAll('button, a, [role="button"], .btn, .button, input[type="submit"], #calcolaBtn, [data-cta="calcola"]'));
-    els.forEach(el=>{
-      if (el.__sdw_calc) return;
-      if (!isCalcElement(el)) return;
-      el.__sdw_calc = 1;
-      el.addEventListener('click', ()=> setTimeout(openAndAnalyseWithRetry, 120));
     });
   }
 
-  // delega globale
-  function delegateClicks() {
-    document.addEventListener('click', (e)=>{
-      const el = e.target.closest('button, a, [role="button"], .btn, .button, input[type="submit"], #calcolaBtn, [data-cta="calcola"]');
-      if (!isCalcElement(el)) return;
-      setTimeout(openAndAnalyseWithRetry, 140);
-    }, true);
-  }
-
-  function boot() {
-    attachToExistingButtons();
-    delegateClicks();
+  function boot(){
+    bindCalcButtons();
+    // observer sui risultati: se compaiono box KPI, prova una sola volta
+    const target = document.body;
+    if (!('MutationObserver' in window) || !target) return;
+    let tried = false;
+    const mo = new MutationObserver(()=>{
+      if (tried) return;
+      const haveResults = !!document.querySelector('*:contains("ROI")') || !!document.querySelector('*:contains("Fatturato")');
+      if (haveResults){ tried = true; setTimeout(afterCalcHandler, 500); }
+    });
+    mo.observe(target, {childList:true, subtree:true});
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
