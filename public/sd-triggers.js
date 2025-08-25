@@ -1,103 +1,105 @@
-/* public/sd-triggers.js — apre su “Calcola la tua crescita” e legge KPI in modo robusto */
-(function () {
+/* public/sd-triggers.js — hook “Calcola la tua crescita” + scraping KPI robusto */
+(function(){
+  const TRY_SELECTORS = ['#calcolaBtn', '[data-cta="calcola"]', 'button'];
+  const LABELS = [
+    {key:'revenue',  rx:/fatturato\s+stimato/i, kind:'money'},
+    {key:'budget',   rx:/budget\s+adv/i,       kind:'money'},
+    {key:'fee',      rx:/canone\s+suite\s+digitale/i, kind:'money'},
+    {key:'roi',      rx:/roi\s+previsionale/i, kind:'percent'},
+    {key:'roas',     rx:/roas\s+stimato/i,     kind:'mult'},      // "0,2x"
+    {key:'profit',   rx:/(utile|perdita)\s+mensile/i, kind:'money'},
+    {key:'cpl',      rx:/cpl\s+stimato/i,      kind:'money'},
+    {key:'cpa',      rx:/cpa\s+stimato/i,      kind:'money'}
+  ];
 
-  // --- utili parsing ---
-  function numFrom(text){
-    if (!text) return null;
-    const t = (text+'').replace(/\s/g,'').replace(/[€x]/g,'');
-    // “-95,36%” -> -95.36 | “1.590” -> 1590
-    const normalized = t.replace(/\./g,'').replace(',', '.');
-    const m = normalized.match(/-?\d+(\.\d+)?/);
-    return m ? parseFloat(m[0]) : null;
-  }
-  function findByLabel(label){
-    const nodes = Array.from(document.querySelectorAll('div,span,td,th,p,li'));
-    const hit = nodes.find(n => n.textContent && n.textContent.trim().toLowerCase().includes(label));
-    if (!hit) return null;
-    // prova a leggere numero nel blocco vicino
-    const box = hit.closest('div') || hit.parentElement;
-    const cand = (box ? Array.from(box.querySelectorAll('*')) : [])
-      .concat(hit.nextElementSibling ? [hit.nextElementSibling] : []);
-    for (const el of cand){
-      const v = numFrom(el.textContent);
-      if (v !== null) return v;
+  const money = (s)=>{ if(!s) return null; const m=String(s).replace(/[^\d,.\-]/g,'').replace(/\./g,'').replace(',', '.'); const v=parseFloat(m); return isNaN(v)?null:+v.toFixed(2); };
+  const percent=(s)=>{ if(!s) return null; const m=String(s).replace(/[^\d,\-]/g,'').replace(',','.'); const v=parseFloat(m); return isNaN(v)?null:+v.toFixed(2); };
+  const mult   =(s)=>{ if(!s) return null; const m=String(s).replace(/[^\d,.\-]/g,'').replace(',', '.'); const v=parseFloat(m); return isNaN(v)?null:+v.toFixed(2); };
+
+  function nearestNumberText(el){
+    if(!el) return null;
+    // prova dentro lo stesso "card"
+    let card = el.closest('div,section,li,article') || el.parentElement;
+    if(card){
+      const txt = card.textContent || '';
+      const nums = txt.match(/[-]?\d[\d\.\,]*\s*(?:x|€|%|k)?/gi);
+      if(nums && nums.length>0) return nums[nums.length-1];
     }
-    // fallback: direttamente dal testo del label
-    const v = numFrom(hit.textContent);
-    return v;
+    // fallback: fratelli
+    let sib = el.nextElementSibling;
+    if(sib) return sib.textContent || null;
+    return null;
   }
 
-  function readKPIs(){
-    // preferisci badges in alto, poi le card interne
-    const all = Array.from(document.querySelectorAll('div,span'));
-    let roi=null, roas=null, revenue=null, budget=null, fee=null, profit=null, cpl=null, cpa=null;
+  function findValueByLabel(rx, kind){
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+    let candidates=[];
+    while(walker.nextNode()){
+      const n = walker.currentNode;
+      const t = (n.textContent||'').trim();
+      if (t && rx.test(t)) candidates.push(n);
+    }
+    for (const el of candidates){
+      const raw = nearestNumberText(el);
+      if(!raw) continue;
+      if (kind==='money'){ const v = money(raw); if(v!=null) return v; }
+      if (kind==='percent'){ const v = percent(raw); if(v!=null) return v; }
+      if (kind==='mult'){ const v = mult(raw); if(v!=null) return v; }
+    }
+    return null;
+  }
 
-    // STRISCIA ALTA
-    all.forEach(n=>{
-      const t=(n.textContent||'').trim();
-      if (/^ROI:/i.test(t)) roi = numFrom(t);
-      if (/^Fatturato:/i.test(t)) revenue = numFrom(t);
-      if (/^(Utile|Perdita):/i.test(t)) profit = numFrom(t);
+  function grabKPIs(){
+    const out = {};
+    LABELS.forEach(({key,rx,kind})=>{
+      const v = findValueByLabel(rx, kind);
+      if (v!=null) out[key]=v;
     });
-
-    // CARD INTERNE (fallback)
-    if (revenue==null) revenue = findByLabel('fatturato stimato');
-    if (budget ==null) budget  = findByLabel('budget adv mensile');
-    if (fee    ==null) fee     = findByLabel('canone suite digitale');
-    if (roi    ==null) roi     = findByLabel('roi previsionale');
-    if (roas   ==null) roas    = findByLabel('roas stimato');
-    if (profit ==null) profit  = findByLabel('perdita mensile') ?? findByLabel('utile mensile');
-    // CPL/CPA (se non ci sono, lasciamo null)
-    cpl = findByLabel('cpl stimato');
-    cpa = findByLabel('cpa stimato');
-
-    return { roi, roas, revenue, budget, fee, profit, cpl, cpa };
+    // se non abbiamo CPL/CPA non inserirli (evitiamo zeri sballati)
+    return out;
   }
 
-  function openAndAnalyse(note){
-    const ok = window.SuiteAssistantChat && window.SuiteAssistantChat.analyseKPIsSilently;
-    if (!ok) return false;
-    const kpi = readKPIs();
-    // se troviamo solo ROI ma tutto il resto è null, non forziamo l’analisi
-    const values = Object.values(kpi).filter(v=>v!=null);
-    if (values.length < 2) { // quasi vuoto: meglio accoglienza standard
-      window.SuiteAssistantChat.open({autostart:true});
-      return true;
-    }
-    window.SuiteAssistantChat.analyseKPIsSilently(kpi, note || '');
-    return true;
+  function currentContext(){
+    // prova a leggere business e settore
+    const ctx = [];
+    const q1 = Array.from(document.querySelectorAll('select, [role="combobox"], .sd-select, .select')).find(el => /A chi vendi|prodotti|servizi/i.test(el.closest('div')?.textContent||''));
+    const q2 = Array.from(document.querySelectorAll('select, [role="combobox"], .sd-select, .select')).find(el => /settore/i.test(el.closest('div')?.textContent||''));
+    const v1 = (q1 && (q1.value || q1.textContent)) ? (q1.value || q1.textContent).trim() : null;
+    const v2 = (q2 && (q2.value || q2.textContent)) ? (q2.value || q2.textContent).trim() : null;
+    if (v1) ctx.push('Business: '+v1);
+    if (v2) ctx.push('Settore: '+v2);
+    return ctx.join(' | ');
   }
 
-  function afterCalcHandler(){
-    openAndAnalyse('Analisi generata dopo “Calcola la tua crescita”.');
-  }
-
-  function bindCalcButtons(){
-    const candidates = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"]'));
-    candidates.forEach(el=>{
-      const t = (el.innerText || el.value || '').toLowerCase();
-      if (/calcola la tua crescita/.test(t) && !el.__sdw){
-        el.__sdw = 1;
-        el.addEventListener('click', ()=>{
-          // aspetta il rendering KPI
-          setTimeout(afterCalcHandler, 650);
-        });
+  function onCalculate(){
+    // attende che la pagina aggiorni i risultati, poi estrae i KPI
+    setTimeout(() => {
+      const kpi = grabKPIs();
+      const ctx = currentContext();
+      if (window.SuiteAssistantChat && typeof window.SuiteAssistantChat.analyseKPIsSilently==='function'){
+        window.SuiteAssistantChat.analyseKPIsSilently(kpi, ctx);
       }
+    }, 350);
+  }
+
+  function bind(){
+    // aggancia tutti i bottoni "calcola"
+    TRY_SELECTORS.forEach(sel=>{
+      document.querySelectorAll(sel).forEach(btn=>{
+        if (btn.__sdwBound) return;
+        const label = (btn.textContent||'').toLowerCase();
+        if (sel==='button' && !/calcola/.test(label)) return; // solo bottoni con "calcola"
+        btn.__sdwBound = true;
+        btn.addEventListener('click', onCalculate);
+      });
     });
   }
 
   function boot(){
-    bindCalcButtons();
-    // observer sui risultati: se compaiono box KPI, prova una sola volta
-    const target = document.body;
-    if (!('MutationObserver' in window) || !target) return;
-    let tried = false;
-    const mo = new MutationObserver(()=>{
-      if (tried) return;
-      const haveResults = !!document.querySelector('*:contains("ROI")') || !!document.querySelector('*:contains("Fatturato")');
-      if (haveResults){ tried = true; setTimeout(afterCalcHandler, 500); }
-    });
-    mo.observe(target, {childList:true, subtree:true});
+    bind();
+    // rebind se cambia il DOM (page builders dinamici)
+    const mo = new MutationObserver(()=>bind());
+    mo.observe(document.documentElement,{childList:true,subtree:true});
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
