@@ -54,11 +54,11 @@
   const toHTML = (txt) => {
     let h = escapeHTML(txt||'');
     h = h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>'); // **bold**
-    // markdown link -> <a href="...">
+    // markdown [testo](url)
     h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
-    // dedup (caso “testo](url) (url)”)
-    h = h.replace(/<\/a>\s*\(https?:\/\/[^\s)]+\)/g,'</a>');
-    // URL nudi -> <a href="...">
+    // dedup “](url) url”
+    h = h.replace(/<\/a>\s*(https?:\/\/[^\s)]+)/g,'</a>');
+    // URL nudi -> <a>
     h = h.replace(/(^|[\s(])(https?:\/\/[^\s)]+)(?=$|[\s)])/g,'$1<a href="$2" target="_blank" rel="noopener">$2</a>');
     const blocks = h.split(/\n\n+/).map(b=>{
       if (/^- /m.test(b)) return '<ul>'+b.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
@@ -174,23 +174,24 @@
     });
   }
 
+  // ====== AI context ======
+  const CONTEXT = `
+Sei l’Assistente AI di **Suite Digitale**.
+Parla con tono amichevole, energico e in **condizionale** (sono proiezioni del simulatore, non numeri reali).
+Benefici: team integrato (strategist, media buyer, CRM, venditori), piattaforma all-in-one, funnel e automazioni.
+Se ROI/ROAS fossero negativi: rassicura e spiega che in consulenza rivedremmo posizionamento, USP, pricing, margini e conversioni.
+Se fossero positivi: entusiasmati e spiega come **scaleremmo** con controllo KPI.
+Non dare istruzioni operative fai-da-te: focalizza il valore della consulenza.
+Non dire “clicca qui”: dì **“Clicca sul bottone qui sotto”** (la CTA è nel pannello).
+Se la domanda è fuori tema, indica contatti: **marketing@suitedigitale.it** – **+39 351 509 4722**.
+Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** (bottone qui sotto).
+`.trim();
+
   // ====== Backend call ======
   async function ask(prompt, opts={silent:false, meta:null}) {
     if (!opts.silent) addRow('me', prompt);
     renderSuggestions([]);
     setTyping(true);
-
-    const CONTEXT = `
-Sei l’Assistente AI di **Suite Digitale**.
-Parla con tono amichevole, energico e in **condizionale** (sono proiezioni del simulatore).
-Benefici: team integrato (strategist, media buyer, CRM, venditori), piattaforma all-in-one, funnel e automazioni.
-Se ROI/ROAS fossero negativi: rassicura e spiega che in consulenza rivedremmo posizionamento, USP, pricing, margini e conversioni.
-Se fossero positivi: entusiasmati e spiega come **scaleremmo** con controllo KPI.
-Non dare istruzioni operative fai-da-te: focalizza il valore della consulenza.
-Non dire “clicca qui”: dì **“Clicca sul bottone qui sotto”** (la CTA è nel pannello, non incollare link se non richiesti).
-Se la domanda è fuori tema, indica contatti: **marketing@suitedigitale.it** – **+39 351 509 4722**.
-Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** (bottone qui sotto).
-`.trim();
 
     try {
       const res = await fetch(ENDPOINT, {
@@ -206,10 +207,32 @@ Chiudi SEMPRE con: **Richiedi un’analisi gratuita 👉** (bottone qui sotto).
     } catch(e) {
       setTyping(false);
       addRow('ai',
-        `Adesso il server non risponde. Posso comunque darti una panoramica e spiegarti come lavoreremmo insieme.
+        `Al momento il server non risponde. Posso comunque darti una panoramica e spiegarti come lavoreremmo insieme.
 **Vuoi andare a fondo con il tuo caso?** Clicca sul bottone qui sotto.`
       );
     }
+  }
+
+  function buildKpiPrompt(kpiObj, note){
+    const parts = [];
+    const add = (label, val, suffix='') => { if (val!=null && val!=='' && !Number.isNaN(val)) parts.push(`${label}: ${val}${suffix}`); };
+    if (typeof kpiObj.roi === 'number')   add('ROI', (kpiObj.roi.toFixed(2)) , '%');
+    if (typeof kpiObj.roas === 'number')  add('ROAS', kpiObj.roas);
+    if (typeof kpiObj.budget === 'number')add('Budget', kpiObj.budget);
+    if (typeof kpiObj.revenue === 'number')add('Fatturato', kpiObj.revenue);
+    if (typeof kpiObj.profit === 'number') add('Utile/Perdita', kpiObj.profit);
+    if (typeof kpiObj.cpl === 'number')    add('CPL', kpiObj.cpl);
+    if (typeof kpiObj.cpa === 'number')    add('CPA', kpiObj.cpa);
+
+    const header = parts.length ? parts.join(' | ') : 'N/A';
+    return `
+Analizza questi **KPI simulati** (proiezioni, non risultati reali):
+${header}.
+${note ? 'Contesto settore: ' + note : ''}
+
+Valutazione chiara in 4–6 punti **in condizionale**, spiegando come Suite Digitale aiuterebbe (posizionamento, USP, pricing, margini, conversioni) e come **scaleremmo** se i numeri fossero buoni.
+Non dire “clicca qui”: dì **“Clicca sul bottone qui sotto”**.
+`.trim();
   }
 
   // ====== API pubbliche ======
@@ -228,15 +251,7 @@ Nel frattempo sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.
 
   function analyseKPIsSilently(kpi, note) {
     mount(); showPanel();
-    const k = kpi || {};
-    const prompt = `
-Analizza questi **KPI simulati** (proiezione, non risultati reali):
-ROI: ${k.roi ?? 'nd'} | ROAS: ${k.roas ?? 'nd'} | CPL: ${k.cpl ?? 'nd'} | CPA: ${k.cpa ?? 'nd'} | Budget: ${k.budget ?? 'nd'} | Fatturato: ${k.revenue ?? 'nd'} | Utile/Perdita: ${k.profit ?? 'nd'}.
-${note ? 'Contesto settore: ' + note : ''}
-
-Valutazione chiara in 4–6 punti **in condizionale**, spiegando come Suite Digitale aiuterebbe (posizionamento, USP, pricing, margini, conversioni) e come scaleremmo se i numeri fossero buoni.
-Non dire “clicca qui”: dì **“Clicca sul bottone qui sotto”**.
-`.trim();
+    const prompt = buildKpiPrompt(kpi||{}, note);
     ask(prompt, {silent:true, meta:{kpi}});
   }
 
