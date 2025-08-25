@@ -7,7 +7,7 @@
     else fn();
   }
 
-  // -------- parsing helpers (IT numbers) ----------
+  // -------- parsing helpers (IT) ----------
   function toNum(raw){
     if (raw==null) return null;
     let s = String(raw).replace(/\s+/g,'').replace(/[€]/g,'')
@@ -21,96 +21,128 @@
     return m ? toNum(m[0]) : null;
   }
   function toRoas(raw){
-    // es. "0,2x" -> 0.2
     const m = String(raw).match(/-?\d+[,\.\d]*/);
     return m ? toNum(m[0]) : null;
   }
 
-  // -------- robust finders by label ----------
-  function findCardValue(labelContains, preferPercent=false){
-    // cerca nodo che contiene il label
+  // trova il “valore vicino” al label
+  function nextNumericText(el){
+    let cur = el;
+    for (let depth=0; depth<6 && cur; depth++){
+      // siblings
+      let s = cur.nextElementSibling;
+      while(s){
+        const t = (s.textContent||'').trim();
+        if (/[€\d]/.test(t)) return t;
+        const cand = s.querySelector && s.querySelector('*:not(script):not(style)');
+        if (cand && /[€\d]/.test(cand.textContent||'')) return cand.textContent;
+        s = s.nextElementSibling;
+      }
+      // parent scope
+      const scope = cur.parentElement;
+      if (scope){
+        const strongNum = Array.from(scope.querySelectorAll('*')).find(n => /[€\d]/.test((n.textContent||'')));
+        if (strongNum) return strongNum.textContent;
+      }
+      cur = cur.parentElement;
+    }
+    return '';
+  }
+
+  function findLabelEl(labelContains){
     const all = Array.from(document.querySelectorAll('*'));
-    const lab = all.find(el => el.children.length === 0 && /[^\s]/.test(el.textContent || '') &&
-      (el.textContent||'').toLowerCase().includes(labelContains.toLowerCase()));
+    return all.find(el =>
+      el.children.length === 0 &&
+      /[^\s]/.test(el.textContent || '') &&
+      (el.textContent||'').toLowerCase().includes(labelContains.toLowerCase())
+    ) || null;
+  }
+
+  function getFromLabel(label, kind){
+    const lab = findLabelEl(label);
     if (!lab) return null;
-    // guarda nel contenitore più vicino con un valore “grande”
-    const card = lab.closest('[class*="card"], [class*="block"], [class*="box"]') || lab.parentElement;
-    const scope = card || lab.parentElement || lab;
-    const txt = (scope.textContent||'').replace(/\s+/g,' ');
-    if (preferPercent) return toPercent(txt);
-    if (/roas/i.test(labelContains)) return toRoas(txt);
-    return toNum(txt);
+    const near = nextNumericText(lab);
+    const scopeTxt = (lab.closest('[class*="card"], [class*="block"], [class*="box"]') || lab.parentElement || lab).textContent || '';
+    const pref = near || scopeTxt;
+    if (kind==='percent') return toPercent(pref);
+    if (kind==='roas')    return toRoas(pref);
+    return toNum(pref);
+  }
+
+  function getProfit(){
+    const lab = (function(){
+      const all = Array.from(document.querySelectorAll('*'));
+      return all.find(el => /Perdita mensile|Utile mensile/i.test(el.textContent||'')) || null;
+    })();
+    if (!lab) return null;
+    const raw = nextNumericText(lab) || lab.textContent || '';
+    const val = toNum(raw);
+    if (val==null) return null;
+    const isLoss = /Perdita/i.test((lab.textContent||'') + ' ' + raw);
+    return isLoss ? -Math.abs(val) : Math.abs(val);
   }
 
   function getKPI(){
     const k = {};
-    k.revenue = findCardValue('Fatturato stimato');         // €
-    k.budget  = findCardValue('Budget ADV mensile');        // €
-    // “Canone Suite Digitale” non lo invio come KPI principale (ma potresti aggiungerlo con k.fee)
-    k.roi     = findCardValue('ROI previsionale', true);    // %
-    k.roas    = findCardValue('ROAS stimato');              // x
-    // Utile/Perdita (positivo o negativo)
-    const profitTxt = (function(){
-      const all = Array.from(document.querySelectorAll('*'));
-      const lab = all.find(el => /Perdita mensile|Utile mensile/i.test(el.textContent||''));
-      if (!lab) return null;
-      const scope = lab.closest('[class*="card"], [class*="block"], [class*="box"]') || lab.parentElement;
-      return (scope || lab).textContent || '';
-    })();
-    if (profitTxt){
-      const val = toNum(profitTxt);
-      // “Perdita mensile” -> negativa
-      const isLoss = /Perdita/i.test(profitTxt);
-      k.profit = isLoss ? -Math.abs(val||0) : Math.abs(val||0);
-    }
+    k.revenue = getFromLabel('Fatturato stimato');        // €
+    k.budget  = getFromLabel('Budget ADV mensile');       // €
+    k.roi     = getFromLabel('ROI previsionale','percent'); // %
+    k.roas    = getFromLabel('ROAS stimato','roas');      // x
+    k.profit  = getProfit();                              // utile/perdita ±€
+    k.cpl     = getFromLabel('CPL stimato');              // €
+    k.cpa     = getFromLabel('CPA stimato');              // €
 
-    // metriche conversione
-    k.cpl = findCardValue('CPL stimato');
-    k.cpa = findCardValue('CPA stimato');
-
-    // pulizia: rimuovi null/NaN
     Object.keys(k).forEach(key => { if (k[key]==null || !isFinite(k[key])) delete k[key]; });
     return k;
   }
 
-  function openAndAnalyse(){
-    if (!W.SuiteAssistantChat) return;
-    const kpi = getKPI();
-    // se non abbiamo almeno ROI o ROAS + budget/fatturato, apri con invito a compilare
-    if (Object.keys(kpi).length === 0) {
-      W.SuiteAssistantChat.open({ autostart:true });
-      return;
-    }
+  function getContext(){
     const sectorEl = document.querySelector('[aria-label*="Settore"], [id*="settore"]') || document.querySelector('[data-field="settore"]');
     const sector = sectorEl ? (sectorEl.value || sectorEl.textContent || '').trim() : '';
     const b2El = document.querySelector('[data-field*="B2"], .badge-b2b, .badge-b2c');
     const channel = b2El ? (b2El.textContent||'').trim() : '';
-    const ctx = `Settore: ${sector||'nd'}; Target: ${channel||'nd'}.`;
-    W.SuiteAssistantChat.analyseKPIsSilently(kpi, ctx);
+    return `Settore: ${sector||'nd'}; Target: ${channel||'nd'}.`;
+  }
+
+  function analyseNow(){
+    if (!W.SuiteAssistantChat) return;
+    const kpi = getKPI();
+    if (Object.keys(kpi).length === 0) {
+      W.SuiteAssistantChat.open({ autostart:true });
+      return;
+    }
+    W.SuiteAssistantChat.analyseKPIsSilently(kpi, getContext());
+  }
+
+  // dopo il click, aspetta che i valori vengano scritti nel DOM
+  function waitForKPIsThenAnalyse(){
+    const started = Date.now();
+    (function tick(){
+      const k = getKPI();
+      if (Object.keys(k).length >= 2) return analyseNow();
+      if (Date.now() - started > 3000) return analyseNow(); // fai quel che puoi
+      setTimeout(tick, 150);
+    })();
   }
 
   function wireCalcButton(){
-    // Agganciati al bottone “Calcola la tua crescita”
-    const byText = Array.from(document.querySelectorAll('button, a, [role="button"]'))
-      .find(b => /calcola la tua crescita/i.test(b.textContent||''));
-    if (byText && !byText.__sdwCalc){
-      byText.__sdwCalc = 1;
-      byText.addEventListener('click', () => {
-        // leggero delay per permettere al DOM di aggiornare i risultati
-        setTimeout(openAndAnalyse, 120);
-      });
-    }
+    const btns = Array.from(document.querySelectorAll('button, a, [role="button"]'))
+      .filter(b => /calcola la tua crescita/i.test(b.textContent||''));
+    btns.forEach(b=>{
+      if (b.__sdwCalc) return;
+      b.__sdwCalc = 1;
+      b.addEventListener('click', () => setTimeout(waitForKPIsThenAnalyse, 60));
+    });
   }
 
   onReady(()=>{
-    // non apriamo nulla all’avvio; solo wiring
+    // wiring iniziale e retry (SPA)
     wireCalcButton();
-    // in caso di SPA, ritenta ogni 800ms finché troviamo il bottone
     let tries = 0;
     const id = setInterval(()=>{
-      if (++tries>20) return clearInterval(id);
+      if (++tries>30) return clearInterval(id);
       wireCalcButton();
-    }, 800);
+    }, 700);
   });
 })();
 
