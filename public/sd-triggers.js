@@ -1,6 +1,6 @@
-/* public/sd-triggers.js — apre su “Calcola” e invia KPI anche se la chat non è ancora pronta */
+/* public/sd-triggers.js — apre su “Calcola” e invia KPI con retry; coda se la chat non è pronta */
 (function () {
-  // --- util numerico (da “€ 1.590”, “-95,36%”, “0,2x”)
+  // --- numerico (“€ 1.590”, “-95,36%”, “0,2x”)
   function num(s) {
     if (!s) return null;
     const t = (s+'').replace(/\./g,'').replace(/€/g,'').replace(/,/g,'.').replace(/[^\d.-]/g,'').trim();
@@ -8,14 +8,23 @@
     return isNaN(n) ? null : n;
   }
 
-  // --- cerca valore partendo da etichette
+  // --- text by any of these ids
+  function byIds(ids) {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      const t  = el && (el.textContent || el.value || '').trim();
+      if (t) return t;
+    }
+    return null;
+  }
+
+  // --- fallback cercando vicino a etichette
   function pickByLabel(labelContains) {
     const lc = labelContains.toLowerCase();
     const nodes = Array.from(document.querySelectorAll('section,div,li,p,span,h1,h2,h3'));
     for (const n of nodes) {
       const tx = (n.textContent||'').toLowerCase();
       if (!tx.includes(lc)) continue;
-      // prova: numero nel nodo successivo o nel contenitore card
       const near = n.nextElementSibling?.textContent || n.parentElement?.textContent || n.textContent || '';
       const raw = near.trim();
       const m = raw.match(/-?\€?\s?[\d\.\,]+|[-]?\d+,\d+%|[-]?\d+(\.\d+)?x/gi);
@@ -25,19 +34,18 @@
   }
 
   function readKPI() {
-    const roiTxt  = document.querySelector('[data-kpi="roi"]')?.textContent || pickByLabel('roi previs');
-    const roasTxt = document.querySelector('[data-kpi="roas"]')?.textContent || pickByLabel('roas');
-    const budTxt  = document.querySelector('[data-kpi="budget"]')?.textContent || pickByLabel('budget adv');
-    const revTxt  = document.querySelector('[data-kpi="revenue"]')?.textContent || pickByLabel('fatturato stim');
-    const proTxt  = document.querySelector('[data-kpi="profit"]')?.textContent || pickByLabel('perdita mensile') || pickByLabel('utile mensile');
-    const cplTxt  = document.querySelector('[data-kpi="cpl"]')?.textContent || pickByLabel('cpl');
-    const cpaTxt  = document.querySelector('[data-kpi="cpa"]')?.textContent || pickByLabel('cpa');
+    // prova con ID “classici” del simulatore + fallback per etichette
+    const roiTxt  = byIds(['roiKPI','roi'])       || pickByLabel('roi previs');
+    const roasTxt = byIds(['roasKPI','roas'])     || pickByLabel('roas');
+    const budTxt  = byIds(['budgetKPI','bud'])    || pickByLabel('budget adv');
+    const revTxt  = byIds(['fatturatoKPI','fat']) || pickByLabel('fatturato stim');
+    const proTxt  = byIds(['profittoKPI','utileKPI','perditaKPI']) || pickByLabel('utile mensile') || pickByLabel('perdita mensile');
+    const cplTxt  = byIds(['cplKPI','cpl'])       || pickByLabel('cpl');
+    const cpaTxt  = byIds(['cpaKPI','cpa'])       || pickByLabel('cpa');
 
-    let roi = num(roiTxt);
-    let roas = num(roasTxt);
-    // se scritto “0,2x” funziona già; se fosse “0.2x” idem
     return {
-      roi, roas,
+      roi:     num(roiTxt),
+      roas:    num(roasTxt),
       budget:  num(budTxt),
       revenue: num(revTxt),
       profit:  num(proTxt),
@@ -66,49 +74,47 @@
 
   // --- riconosci “Calcola la tua crescita”
   function isCalcElement(el) {
+    if (!el) return false;
+    if (el.id && el.id.toLowerCase() === 'calcolabtn') return true;
     const t = (el.innerText || el.textContent || '').toLowerCase().replace(/\s+/g,' ');
-    return t.includes('calcola') && (t.includes('cresc') || t.includes('risult'));
+    return t.includes('calcola') && (t.includes('cresc') || t.includes('risult') || t.includes('tua crescita'));
+  }
+
+  function openAndAnalyseWithRetry() {
+    // apri SUBITO la chat (welcome), poi prova a leggere KPI con piccoli retry
+    runOrQueue(()=> window.SuiteAssistantChat.open({autostart:true}));
+    let tries = 12; // ~12*200ms = ~2.4s
+    (function tick(){
+      const k = readKPI();
+      // considera “pronto” se almeno ROI esiste (il resto l’AI lo vede come “nd”)
+      if (k && typeof k.roi === 'number') {
+        runOrQueue(()=> window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext()));
+        return;
+      }
+      if (--tries > 0) setTimeout(tick, 200);
+    })();
   }
 
   function attachToExistingButtons() {
-    const els = Array.from(document.querySelectorAll('button, a, [role="button"], .btn, .button, input[type="submit"]'));
+    const els = Array.from(document.querySelectorAll('button, a, [role="button"], .btn, .button, input[type="submit"], #calcolaBtn'));
     els.forEach(el=>{
       if (el.__sdw_calc) return;
       if (!isCalcElement(el)) return;
       el.__sdw_calc = 1;
-      el.addEventListener('click', ()=>{
-        setTimeout(()=>{
-          const k = readKPI();
-          const full = JSON.stringify(k);
-          if (full.includes('null')) return; // aspetta che i numeri compaiano davvero
-          runOrQueue(()=> {
-            window.SuiteAssistantChat.open({autostart:true});
-            window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext());
-          });
-        }, 300);
-      });
+      el.addEventListener('click', ()=> setTimeout(openAndAnalyseWithRetry, 120));
     });
   }
 
-  // delegation globale (cattura pulsanti creati dopo)
+  // delega globale (pulsanti creati dopo)
   function delegateClicks() {
     document.addEventListener('click', (e)=>{
-      const el = e.target.closest('button, a, [role="button"], .btn, .button, input[type="submit"]');
-      if (!el) return;
+      const el = e.target.closest('button, a, [role="button"], .btn, .button, input[type="submit"], #calcolaBtn');
       if (!isCalcElement(el)) return;
-      setTimeout(()=>{
-        const k = readKPI();
-        const full = JSON.stringify(k);
-        if (full.includes('null')) return;
-        runOrQueue(()=> {
-          window.SuiteAssistantChat.open({autostart:true});
-          window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext());
-        });
-      }, 320);
+      setTimeout(openAndAnalyseWithRetry, 140);
     }, true);
   }
 
-  // fallback: non appena “appaiono” i KPI -> analizza una sola volta per set
+  // fallback: non appena “appaiono” i KPI -> analizza una sola volta
   let lastHash = '';
   let throttle;
   function observeKPI() {
@@ -116,8 +122,9 @@
       clearTimeout(throttle);
       throttle = setTimeout(()=>{
         const k = readKPI();
+        if (!k) return;
         const hash = JSON.stringify(k);
-        if (!hash.includes('null') && hash !== lastHash) {
+        if (hash !== lastHash && typeof k.roi === 'number') {
           lastHash = hash;
           runOrQueue(()=> {
             window.SuiteAssistantChat.open({autostart:true});
@@ -130,7 +137,7 @@
   }
 
   function boot() {
-    // NIENTE auto-open all’avvio pagina
+    // Nessun auto-open all’avvio pagina
     attachToExistingButtons();
     delegateClicks();
     observeKPI();
