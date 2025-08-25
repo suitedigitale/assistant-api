@@ -51,7 +51,7 @@
 
   #sdw-bubble{position:fixed;right:22px;bottom:22px;background:var(--sd-accent);color:#fff;border:0;border-radius:999px;padding:12px 16px;box-shadow:0 10px 26px rgba(0,0,0,.35);cursor:pointer;display:none;z-index:999999}
 
-  /* link chiari (bianco) */
+  /* link chiari (bianco) – se mai comparissero */
   a.sdw-link{color:#fff;text-decoration:underline}
   a.sdw-link:hover{filter:brightness(1.15)}
   `;
@@ -60,39 +60,30 @@
   // ====== tiny helpers ======
   const toHTML = (txt='') => {
     let h = txt
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')           // **bold**
-      .replace(/\*\*(.+?)\*:\s*/g, '<h4>$1</h4>');                 // **Titolo:**
-    // bullets "- "
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*\*(.+?)\*:\s*/g, '<h4>$1</h4>');
     if (/^- /m.test(h)) h = '<ul>'+h.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
-    // link -> <a> (se dovessero comparire comunque)
     h = h.replace(/(https?:\/\/[^\s)]+)/g, '<a class="sdw-link" target="_blank" rel="noopener">$1</a>');
     return h.replace(/\n/g,'<br/>');
   };
-
-  // clamp “leggi di più”
   function clampMessage(msgEl){
-    // già corto?
     if (msgEl.scrollHeight <= 220) return;
     msgEl.classList.add('clamped');
     const btn = document.createElement('button');
     btn.className='sdw-expand'; btn.textContent='Leggi di più';
     btn.onclick = ()=> {
-      if (msgEl.classList.contains('clamped')) {
-        msgEl.classList.remove('clamped'); btn.textContent='Mostra meno';
-      } else {
-        msgEl.classList.add('clamped'); btn.textContent='Leggi di più';
-      }
+      if (msgEl.classList.contains('clamped')) { msgEl.classList.remove('clamped'); btn.textContent='Mostra meno'; }
+      else { msgEl.classList.add('clamped'); btn.textContent='Leggi di più'; }
     };
     msgEl.parentElement.appendChild(btn);
   }
 
   // ====== UI ======
   let root, body, input, sendBtn, ctaBtn;
-  const ding = new Audio('data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA...'); // beep corto
+  const ding = new Audio('data:audio/mp3;base64,//uQZAAAAA...'); // beep corto (placeholder)
 
   function mount() {
     if (root) return;
-    // Bubble
     const bubble = document.createElement('button');
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
@@ -101,7 +92,6 @@
     document.body.appendChild(bubble);
     bubble.style.display = 'inline-flex';
 
-    // Panel
     root = document.createElement('div'); root.id = 'sdw-root';
     root.innerHTML = `
       <div id="sdw-panel">
@@ -160,7 +150,8 @@
     items.forEach(({label, prompt})=>{
       const b = document.createElement('button');
       b.className='sdw-chip'; b.type='button'; b.textContent=label;
-      b.onclick = ()=> ask(prompt,{silent:false});
+      // <<< SILENT: non mostra il comando dell’utente >>>
+      b.onclick = ()=> ask(prompt,{silent:true});
       wrap.appendChild(b);
     });
     rowEl.appendChild(wrap);
@@ -179,7 +170,7 @@
   function baseContext(){
     return `
 Sei l’Assistente AI di **Suite Digitale**. Tono: amichevole, energico, professionale.
-Non inserire link: invita sempre a **cliccare il bottone in basso “Richiedi un’analisi gratuita 👉”**.
+Parla al **condizionale** quando commenti KPI (sono proiezioni). Non inserire link: invita sempre a **cliccare il bottone in basso “Richiedi un’analisi gratuita 👉”**.
 Ricorda i nostri vantaggi: team integrato Marketing+Vendite (strategist, media buyer, CRM, venditori), piattaforma all-in-one, funnel e processi coordinati.
 Se la domanda non è nel perimetro marketing/servizio, rispondi brevemente e reindirizza alla consulenza.
 
@@ -192,8 +183,6 @@ ${FAQ}
     if (!opts.silent) addRow('me', toHTML(prompt));
     const typing = addTyping();
 
-    const CONTEXT = baseContext();
-
     try {
       const res = await fetch(ENDPOINT, {
         method:'POST',
@@ -201,25 +190,24 @@ ${FAQ}
         body: JSON.stringify({
           mode:'analysis',
           prompt: prompt,
-          context: CONTEXT,
+          context: baseContext(),
           meta: opts.meta || null
         })
       });
       const j = await res.json().catch(() => ({}));
       const out = (j && (j.text || j.message)) ? j.text || j.message : JSON.stringify(j);
 
-      // pulizia: se il modello mette link, togliamo e invitiamo alla CTA
+      // nessun link in chiaro
       let text = out.replace(/https?:\/\/\S+/g,'').trim();
       const {row} = typing;
       row.classList.remove('typing');
       row.querySelector('.sdw-msg').innerHTML = toHTML(text);
       clampMessage(row.querySelector('.sdw-msg'));
 
-      // chips contestuali
       addChips(row, [
-        {label:'Cos’è Suite Digitale', prompt:'Spiegami in breve cos’è Suite Digitale e come lavora il team marketing+vendite, senza link.'},
-        {label:'Perché scegliere Suite Digitale', prompt:'Elenca 4 motivi per cui Suite Digitale è diversa da un’agenzia (senza link).'},
-        {label:'Come prenotare la consulenza', prompt:'Dimmi come funziona la consulenza gratuita e cosa analizzerete, senza link.'},
+        {label:'Cos’è Suite Digitale',           prompt:'Spiegami in 6-8 righe cos’è Suite Digitale e come lavora il team marketing+vendite, senza link.'},
+        {label:'Perché scegliere Suite Digitale', prompt:'Scrivi 4 motivi concreti per cui Suite Digitale è diversa da un’agenzia, senza link.'},
+        {label:'Come prenotare la consulenza',    prompt:'Come funziona la consulenza gratuita e cosa analizzereste? senza link.'},
       ]);
     } catch (e) {
       const {row} = typing;
@@ -241,9 +229,9 @@ ${FAQ}
       ));
       clampMessage(row.querySelector('.sdw-msg'));
       addChips(row, [
-        {label:'Cos’è Suite Digitale', prompt:'Cos’è Suite Digitale? Spiegalo in 6-8 righe, senza link.'},
+        {label:'Cos’è Suite Digitale',           prompt:'Cos’è Suite Digitale? Spiegalo in 6-8 righe, senza link.'},
         {label:'Perché scegliere Suite Digitale', prompt:'Perché scegliere Suite Digitale invece di un’agenzia? 4 punti chiave, senza link.'},
-        {label:'Come prenotare la consulenza', prompt:'Come funziona la consulenza gratuita e quali aspetti analizzeremo? senza link.'},
+        {label:'Come prenotare la consulenza',    prompt:'Come funziona la consulenza gratuita e quali aspetti analizzerete? senza link.'},
       ]);
     }
   }
@@ -258,25 +246,24 @@ ${FAQ}
     if (k.roas!=null)     parts.push(`ROAS: ${k.roas}`);
     if (k.budget!=null)   parts.push(`Budget: €${k.budget}`);
     if (k.revenue!=null)  parts.push(`Fatturato: €${k.revenue}`);
-    if (k.profit!=null)   parts.push(`${k.profit>=0?'Utile':'Perdita'}: €${k.profit}`);
+    if (k.profit!=null)   parts.push(`${k.profit>=0?'Utile':'Perdita'}: €${Math.abs(k.profit)}`);
     if (k.cpl!=null)      parts.push(`CPL: €${k.cpl}`);
     if (k.cpa!=null)      parts.push(`CPA: €${k.cpa}`);
 
     const prompt = `
-Analizza questi **KPI simulati** (non sono risultati reali ma proiezioni del simulatore):
+Analizza questi **KPI simulati** (sono proiezioni del simulatore, non dati reali raccolti finora):
 ${parts.join(' | ')}.
 ${contextNote ? 'Contesto: ' + contextNote : ''}
 
 Parla al **condizionale** (es. “otterresti, rientrerebbero…”). Se i numeri sono negativi, rassicura e spiega che in consulenza valuteremmo posizionamento/USP, pricing e ottimizzazioni di funnel per ridurre i costi e aumentare i tassi. 
-Se i numeri sono buoni, spiega come potremmo scalare controllando KPI.
-Non inserire link; chiudi invitando a **cliccare il bottone in basso**.
+Se i numeri sono positivi, spiega come potremmo scalare controllando KPI.
+Non inserire link; chiudi invitando l’utente a **cliccare il bottone in basso**.
 `.trim();
     ask(prompt, {silent:true, meta:{kpi}});
   }
 
   window.SuiteAssistantChat = { open, close, ask, analyseKPIsSilently };
 
-  // bubble sempre pronto
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
 
