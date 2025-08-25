@@ -1,6 +1,6 @@
-/* public/sd-triggers.js — apre la chat SOLO quando serve e invia l’analisi KPI */
+/* public/sd-triggers.js — apre su “Calcola” e invia KPI anche se la chat non è ancora pronta */
 (function () {
-  // --- numerici da “€ 1.590”, “-95,36%”, “0,2x”
+  // --- util numerico (da “€ 1.590”, “-95,36%”, “0,2x”)
   function num(s) {
     if (!s) return null;
     const t = (s+'').replace(/\./g,'').replace(/€/g,'').replace(/,/g,'.').replace(/[^\d.-]/g,'').trim();
@@ -8,14 +8,16 @@
     return isNaN(n) ? null : n;
   }
 
-  // --- fallback per etichetta
+  // --- cerca valore partendo da etichette
   function pickByLabel(labelContains) {
-    const labs = Array.from(document.querySelectorAll('*'));
-    for (const n of labs) {
-      const txt = (n.textContent||'').toLowerCase();
-      if (!txt.includes(labelContains)) continue;
-      const wrap = n.closest('[class*="card"], [class*="result"], .result, .card') || n;
-      const raw  = (wrap.textContent||'').trim();
+    const lc = labelContains.toLowerCase();
+    const nodes = Array.from(document.querySelectorAll('section,div,li,p,span,h1,h2,h3'));
+    for (const n of nodes) {
+      const tx = (n.textContent||'').toLowerCase();
+      if (!tx.includes(lc)) continue;
+      // prova: numero nel nodo successivo o nel contenitore card
+      const near = n.nextElementSibling?.textContent || n.parentElement?.textContent || n.textContent || '';
+      const raw = near.trim();
       const m = raw.match(/-?\€?\s?[\d\.\,]+|[-]?\d+,\d+%|[-]?\d+(\.\d+)?x/gi);
       if (m && m[0]) return m[0];
     }
@@ -23,9 +25,8 @@
   }
 
   function readKPI() {
-    // prova con data-kpi, poi per etichetta
     const roiTxt  = document.querySelector('[data-kpi="roi"]')?.textContent || pickByLabel('roi previs');
-    const roasTxt = document.querySelector('[data-kpi="roas"]')?.textContent || pickByLabel('roas stimat');
+    const roasTxt = document.querySelector('[data-kpi="roas"]')?.textContent || pickByLabel('roas');
     const budTxt  = document.querySelector('[data-kpi="budget"]')?.textContent || pickByLabel('budget adv');
     const revTxt  = document.querySelector('[data-kpi="revenue"]')?.textContent || pickByLabel('fatturato stim');
     const proTxt  = document.querySelector('[data-kpi="profit"]')?.textContent || pickByLabel('perdita mensile') || pickByLabel('utile mensile');
@@ -34,8 +35,7 @@
 
     let roi = num(roiTxt);
     let roas = num(roasTxt);
-    if (roasTxt && /x/i.test(roasTxt)) roas = num(roasTxt);
-
+    // se scritto “0,2x” funziona già; se fosse “0.2x” idem
     return {
       roi, roas,
       budget:  num(budTxt),
@@ -47,14 +47,22 @@
   }
 
   function sectorContext() {
-    const sector = Array.from(document.querySelectorAll('select, [data-field="settore"], [data-name="settore"], [class*="settore"]'))
+    const sector = Array.from(document.querySelectorAll('select,[data-field="settore"],[data-name="settore"],[class*="settore"]'))
       .map(n=>n.value || n.getAttribute('value') || n.textContent).find(Boolean);
     const b2 = (document.body.textContent||'').match(/\bB2B|B2C\b/i)?.[0] || '';
     return [sector, b2].filter(Boolean).join(' - ');
   }
 
-  // --- apri chat (senza auto open all’avvio pagina)
-  function openGentle() { window.SuiteAssistantChat?.open?.({ autostart:true }); }
+  // --- coda se la chat non è pronta
+  window.__sdQueue = window.__sdQueue || [];
+  function runOrQueue(fn){
+    if (window.SuiteAssistantChat && window.SuiteAssistantChat.analyseKPIsSilently) fn();
+    else window.__sdQueue.push(fn);
+  }
+  document.addEventListener('SuiteAssistantReady', ()=>{
+    const q = window.__sdQueue.splice(0);
+    q.forEach(fn=>{ try{ fn(); }catch(_){} });
+  });
 
   // --- riconosci “Calcola la tua crescita”
   function isCalcElement(el) {
@@ -71,15 +79,18 @@
       el.addEventListener('click', ()=>{
         setTimeout(()=>{
           const k = readKPI();
-          const hash = JSON.stringify(k);
-          if (hash.includes('null')) return;      // aspetta risultati reali
-          window.SuiteAssistantChat?.analyseKPIsSilently?.(k, sectorContext());
+          const full = JSON.stringify(k);
+          if (full.includes('null')) return; // aspetta che i numeri compaiano davvero
+          runOrQueue(()=> {
+            window.SuiteAssistantChat.open({autostart:true});
+            window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext());
+          });
         }, 300);
       });
     });
   }
 
-  // delegation: cattura anche elementi creati dopo
+  // delegation globale (cattura pulsanti creati dopo)
   function delegateClicks() {
     document.addEventListener('click', (e)=>{
       const el = e.target.closest('button, a, [role="button"], .btn, .button, input[type="submit"]');
@@ -87,14 +98,17 @@
       if (!isCalcElement(el)) return;
       setTimeout(()=>{
         const k = readKPI();
-        const hash = JSON.stringify(k);
-        if (hash.includes('null')) return;
-        window.SuiteAssistantChat?.analyseKPIsSilently?.(k, sectorContext());
+        const full = JSON.stringify(k);
+        if (full.includes('null')) return;
+        runOrQueue(()=> {
+          window.SuiteAssistantChat.open({autostart:true});
+          window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext());
+        });
       }, 320);
     }, true);
   }
 
-  // fallback: appena compaiono i KPI -> analizza (utile se il click non viene preso)
+  // fallback: non appena “appaiono” i KPI -> analizza una sola volta per set
   let lastHash = '';
   let throttle;
   function observeKPI() {
@@ -105,7 +119,10 @@
         const hash = JSON.stringify(k);
         if (!hash.includes('null') && hash !== lastHash) {
           lastHash = hash;
-          window.SuiteAssistantChat?.analyseKPIsSilently?.(k, sectorContext());
+          runOrQueue(()=> {
+            window.SuiteAssistantChat.open({autostart:true});
+            window.SuiteAssistantChat.analyseKPIsSilently(k, sectorContext());
+          });
         }
       }, 250);
     });
@@ -113,13 +130,10 @@
   }
 
   function boot() {
-    // NIENTE auto-open alla pagina: l’utente apre il bubble quando vuole
+    // NIENTE auto-open all’avvio pagina
     attachToExistingButtons();
     delegateClicks();
     observeKPI();
-    // opzionale: se vuoi mostrare solo il bubble al load:
-    if (window.SuiteAssistantChat) { /* niente */ }
-    else document.addEventListener('SuiteAssistantReady', ()=>{/* hook */});
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
