@@ -20,13 +20,18 @@
   .sdw-row{display:flex;margin:10px 0}
   .sdw-msg{max-width:82%;padding:12px 14px;border-radius:14px;line-height:1.45;background:#151a33;border:1px solid rgba(255,255,255,.06)}
   .me{justify-content:flex-end}
-  .me .sdw-msg{background:#1a1f45;border:1px solid rgba(255,255,255,.10)}
+  .me .sdw-msg{background:#1a1f45;border:1px solid #38006A} /* bordo utente */
   .sdw-msg h4{margin:.2rem 0 .4rem 0;font-size:15px;font-weight:800}
   .sdw-msg strong{font-weight:800}
   .typing .sdw-msg{opacity:.85}
   .dots{display:inline-block;min-width:1.2em}
   .dots:after{content:'…';animation:sdDots 1.2s steps(3,end) infinite}
   @keyframes sdDots{0%{content:''}33%{content:'.'}66%{content:'..'}100%{content:'...'}}
+
+  /* clamp/leggi-tutto */
+  .sdw-clamped{max-height:240px;overflow:hidden;position:relative}
+  .sdw-clamped:after{content:'';position:absolute;left:0;right:0;bottom:0;height:56px;background:linear-gradient(to bottom, rgba(21,26,51,0), #151a33)}
+  .sdw-more{margin-top:8px;background:transparent;border:0;color:#fff;text-decoration:underline;cursor:pointer}
 
   .chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 4px 0}
   .chip{background:#121632;border:1px solid rgba(255,255,255,.1);color:#dfe3ff;border-radius:999px;padding:8px 12px;cursor:pointer;font-size:13px}
@@ -87,7 +92,7 @@
     root.querySelector('#sdw-close').onclick = close;
     ctaBtn.onclick = () => window.open(CTA_URL,'_blank');
 
-    const fire = () => { const v=(input.value||'').trim(); if(!v) return; input.value=''; ask(v,{silent:false}); };
+    const fire = () => { const v=(input.value||'').trim(); if(!v) return; input.value=''; addRow('me', toHTML(v)); ask(v,{silent:true}); };
     sendBtn.onclick = fire;
     input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); fire(); } });
 
@@ -100,9 +105,34 @@
   function addRow(role, html, typing=false){
     const r=document.createElement('div'); r.className='sdw-row '+role+(typing?' typing':'');
     const m=document.createElement('div'); m.className='sdw-msg'; m.innerHTML=html;
-    r.appendChild(m); body.appendChild(r); body.scrollTop=body.scrollHeight; return r;
+    r.appendChild(m); body.appendChild(r); body.scrollTop=0; return r;
   }
   function typingRow(){ return addRow('ai',"L'assistente sta scrivendo<span class='dots'></span>",true); }
+
+  // clamp su messaggi lunghi
+  function clampIfLong(msgDiv){
+    // già clamp?
+    if (!msgDiv || msgDiv.classList.contains('sdw-clamped')) return;
+    // misura
+    const over = msgDiv.scrollHeight > 280;
+    if (!over) return;
+    msgDiv.classList.add('sdw-clamped');
+    const btn = document.createElement('button');
+    btn.className='sdw-more';
+    btn.textContent='Leggi tutto';
+    btn.onclick=()=>{
+      if (msgDiv.classList.contains('sdw-clamped')){
+        msgDiv.classList.remove('sdw-clamped');
+        btn.textContent='Mostra meno';
+      }else{
+        msgDiv.classList.add('sdw-clamped');
+        btn.textContent='Leggi tutto';
+        body.scrollTop=0;
+      }
+    };
+    msgDiv.appendChild(btn);
+    body.scrollTop=0;
+  }
 
   // quick replies (silent)
   const QUICK={
@@ -121,7 +151,6 @@
   }
 
   async function ask(prompt, opts={silent:false, meta:null}) {
-    if (!opts.silent) addRow('me', toHTML(prompt));
     const trow = typingRow();
 
     const CONTEXT=`
@@ -129,24 +158,38 @@ Sei l’Assistente AI di **Suite Digitale**. Tono: cordiale, motivante, proattiv
 Analizza KPI **simulati** in condizionale (“otterresti / rientrerebbero…”).
 Se ROI/ROAS deboli: rassicura e spiega che in consulenza analizzeremo posizionamento, USP, pricing,
 margini, tassi di conversione e come evitare sprechi. Se buoni: come scalare con team integrato.
-Niente link testuali: invita a cliccare **il bottone in basso**.
+Niente link testuali: invita a cliccare **il bottone in basso 👇**.
 FAQ chiave: team incluso; formiamo venditori; soddisfatto o rimborsato (mese successivo); dati basati su 220+ progetti.
+Inserisci quando utile 1–2 “angoli CLOSETING” (senza forzare), scegliendo fra:
+- **Pionieri**: “Siamo i creatori del CLOSETING: primo reparto integrato Marketing & Sales.”
+- **Esclusività**: “L’unico servizio al mondo che fa CLOSETING.”
+- **Rivoluzione**: “Strategia, ADV, CRM e venditori telefonici insieme sullo stesso obiettivo.”
+- **Orgoglio Italiano**: “Primo CLOSETING al mondo, nato in Italia.”
+- **Appropriazione del termine**: “CLOSETING = Suite Digitale.”
+- **Disruption**: “Abbiamo unito ciò che tutti hanno sempre diviso.”
 `.trim();
 
     try{
       const res=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'analysis',prompt,context:CONTEXT,meta:opts.meta||null})});
       const j=await res.json().catch(()=>({}));
       const out=(j && (j.text||j.message))? (j.text||j.message) : 'Ok.';
-      trow.querySelector('.sdw-msg').innerHTML=toHTML(out)+'<br><br><strong>Vuoi andare a fondo con il tuo caso?</strong> Usa il bottone qui sotto 👉';
-      trow.classList.remove('typing'); body.scrollTop=body.scrollHeight;
-    }catch(e){
-      trow.querySelector('.sdw-msg').innerHTML=toHTML("Non riesco a contattare il server ora. Posso comunque darti indicazioni e prenotare l’analisi dal bottone qui sotto.");
+      const box = trow.querySelector('.sdw-msg');
+      box.innerHTML = toHTML(out) + '<br><br><strong>Vuoi andare a fondo con il tuo caso?</strong> Usa il bottone qui sotto 👇';
       trow.classList.remove('typing');
+      clampIfLong(box);
+      body.scrollTop=0;
+    }catch(e){
+      const box = trow.querySelector('.sdw-msg');
+      box.innerHTML = toHTML("Non riesco a contattare il server ora. Posso comunque darti indicazioni e prenotare l’analisi dal bottone qui sotto 👇");
+      trow.classList.remove('typing');
+      clampIfLong(box);
+      body.scrollTop=0;
     }
   }
 
   function welcome(){
-    addRow('ai', toHTML("Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**. Intanto sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia."));
+    const r = addRow('ai', toHTML("Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**. Intanto sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia."));
+    clampIfLong(r.querySelector('.sdw-msg'));
   }
   function open(opts={}){ mount(); showPanel(); if (opts.autostart) welcome(); }
   function close(){ hidePanel(); }
@@ -162,7 +205,7 @@ ${k.cpl!=null ? '- CPL: '+k.cpl : ''} ${k.cpa!=null ? '| CPA: '+k.cpa : ''}
 ${k.profit!=null ? '| Utile/Perdita: '+k.profit : ''}.
 ${contextNote ? 'Contesto: '+contextNote : ''}
 
-Fornisci 4–6 punti: lettura rapida, rischi/opportunità, cosa faremmo in consulenza (posizionamento/USP, pricing, margini, funnel), quando scalare, invito a premere il bottone in basso.
+Fornisci 4–6 punti: lettura rapida, rischi/opportunità, cosa faremmo in consulenza (posizionamento/USP, pricing, margini, funnel), quando scalare, invito a premere **il bottone qui sotto 👇**.
 `.trim();
     ask(prompt,{silent:true,meta:{kpi}});
   }
