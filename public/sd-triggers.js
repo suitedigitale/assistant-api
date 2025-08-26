@@ -20,7 +20,6 @@
   };
 
   // ====== Helpers ======
-  // Prende un numero da dataset.target se c’è; altrimenti dal testo (toglie € . , spazi)
   function readNumber(sel) {
     const el = document.querySelector(sel);
     if (!el) return null;
@@ -34,20 +33,17 @@
     return Number.isFinite(num) ? num : null;
   }
 
-  // Legge tutti i KPI disponibili
   function collectKPI() {
     const k = {};
     for (const [key, sel] of Object.entries(KPI_MAP)) {
       const v = readNumber(sel);
       if (v != null) k[key] = v;
     }
-    // pulizia: non mandare CPL/CPA se mancano o sono 0
     if (!(k.cpl > 0)) delete k.cpl;
     if (!(k.cpa > 0)) delete k.cpa;
     return k;
   }
 
-  // Contesto utile all’AI (per parlare al condizionale e “settoriale”)
   function collectContext() {
     const getVal = (q) => (document.querySelector(q) || {}).value || '';
     const toInt  = (q) => parseInt((document.querySelector(q) || {}).value || '0', 10) || 0;
@@ -61,7 +57,6 @@
     };
   }
 
-  // Aspetta che il simulatore abbia impostato i dataset.target (dopo il click)
   function waitKPIReady(timeoutMs = 2500) {
     const started = Date.now();
     return new Promise((resolve) => {
@@ -77,14 +72,12 @@
   }
 
   async function onCalcolaClick() {
-    // diamo tempo al simulatore di calcolare/aggiornare i dataset
     setTimeout(async () => {
       await waitKPIReady(2500);
       const kpi = collectKPI();
       const ctx = collectContext();
 
       if (!window.SuiteAssistantChat) return;
-      // Apri la chat (resta in silenzioso: l’utente non vede un input “finto”)
       window.SuiteAssistantChat.open({ autostart: false });
       window.SuiteAssistantChat.analyseKPIsSilently(kpi, JSON.stringify(ctx));
     }, 350);
@@ -104,3 +97,4 @@
     bind();
   }
 })();
+
