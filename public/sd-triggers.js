@@ -1,47 +1,66 @@
-/* public/sd-triggers.js — apre la chat su “Calcola” e invia KPI dagli ID */
 (function(){
-  var SEL = ['#calcolaBtn','[data-cta="calcola"]','button','a'];
-  var ID  = {
-    revenue:'#fatturatoKPI',   // € 3.250
-    budget :'#budgetKPI',      // € 1.590
-    roi    :'#roiKPI',         // -95,36%
-    roas   :'#roasKPI',        // 0,2x
-    profit :'#utilePerditaKPI',// € -2.570 / € 1.234
-    cpl    :'#cplKPI',         // € 30   (se presente)
-    cpa    :'#cpaKPI'          // € 318  (se presente)
+  const DEBUG = false;
+
+  // helper parsing
+  const num = (t)=> {
+    if (t==null) return null;
+    t = (''+t).trim();
+    // percentuali   es: "-95,36%"
+    if (/%/.test(t)) return parseFloat(t.replace('%','').replace(/\./g,'').replace(',','.'));
+    // roas "0,2x"
+    if (/x$/i.test(t)) return parseFloat(t.replace(/[xX]/,'').replace('.','').replace(',','.'));
+    // euro o interi "€ -2.570"
+    return parseFloat(t.replace(/[^\d,\-]/g,'').replace(/\./g,'').replace(',','.'));
   };
 
-  function txt(sel){ var e=document.querySelector(sel); return e?(e.innerText||e.textContent||'').trim():''; }
-  function num(t){
-    if(!t) return null;
-    t=String(t).replace(/\s+/g,'');
-    if(/x$/i.test(t)) t=t.replace(/x/i,'');          // "0,2x"
-    t=t.replace(/[€%]/g,'').replace(/\./g,'').replace(',','.');
-    t=t.replace(/[^0-9.\-]/g,''); var n=parseFloat(t);
-    return isNaN(n)?null:n;
+  function readText(id){
+    const el = document.getElementById(id);
+    return el ? (el.textContent||'').trim() : '';
   }
-  function read(){
-    var k={ revenue:num(txt(ID.revenue)), budget:num(txt(ID.budget)),
-            roi:num(txt(ID.roi)), roas:num(txt(ID.roas)), profit:num(txt(ID.profit)),
-            cpl:num(txt(ID.cpl)), cpa:num(txt(ID.cpa)) };
-    Object.keys(k).forEach(x=>k[x]==null && delete k[x]); // niente zeri finti
-    return k;
+
+  function readKPI(){
+    // dalla tua pagina (Simulatore KPI.txt)
+    const revenue = num(readText('fatturatoKPI'));
+    const budget  = num(readText('budgetKPI'));
+    const fee     = num(readText('canoneSuiteDigitaleKPI'));
+    const roi     = num(readText('roiKPI'));            // percentuale
+    const roas    = num(readText('roasKPI'));           // x
+    const profit  = num(readText('utilePerditaKPI'));
+    const cpl     = num(readText('cplKPI'));
+    const cpa     = num(readText('cpaKPI'));
+
+    const kpi = { revenue, budget, fee, roi, roas, profit, cpl, cpa };
+    if (DEBUG) console.log('[SD] KPI letti:', kpi);
+    return kpi;
+  }
+
+  function analyse(){
+    if (!window.SuiteAssistantChat) return;
+    const kpi = readKPI();
+    // se CPL/CPA sono NaN o null, non inviarli (evita “0” fittizi)
+    Object.keys(kpi).forEach(k => { if (kpi[k]==null || isNaN(kpi[k])) delete kpi[k]; });
+    window.SuiteAssistantChat.analyseKPIsSilently(kpi, '');
   }
 
   function hook(){
-    var btn = SEL.map(q=>Array.from(document.querySelectorAll(q))).flat()
-      .find(b=>(b.textContent||'').match(/calcola.*crescita/i));
-    if(!btn || btn.__sd) return; btn.__sd=1;
-    btn.addEventListener('click', function(){
-      setTimeout(function(){
-        if(!window.SuiteAssistantChat) return;
-        var k = read(); if(Object.keys(k).length)
-          window.SuiteAssistantChat.analyseKPIsSilently(k,'');
-      }, 250); // lascia aggiornare i numeri
-    });
+    // bottone “Calcola la tua crescita” → id calcolaBtn nel simulatore
+    const btn = document.getElementById('calcolaBtn') ||
+                Array.from(document.querySelectorAll('button,a'))
+                  .find(el => /calcola la tua crescita/i.test(el.textContent||''));
+    if (!btn || btn.__sd_hooked) return;
+    btn.__sd_hooked = 1;
+    btn.addEventListener('click', () => setTimeout(analyse, 80)); // attende che i KPI vengano aggiornati
+    if (DEBUG) console.log('[SD] hook OK su', btn);
   }
 
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', hook); else hook();
-  new MutationObserver(hook).observe(document.documentElement,{childList:true,subtree:true});
-  console.log('[SD] triggers minimal ready');
+  function ready(){ hook(); }
+
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', ready);
+  else ready();
+
+  // in caso la pagina aggiorni DOM dinamicamente
+  const mo = new MutationObserver(hook);
+  mo.observe(document.documentElement, {childList:true, subtree:true});
+
+  if (DEBUG) console.log('[SD] sd-triggers.js pronto');
 })();
