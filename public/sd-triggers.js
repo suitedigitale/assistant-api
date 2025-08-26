@@ -1,139 +1,102 @@
-/* public/sd-triggers.js — apre la chat al click su "Calcola la tua crescita" e legge i KPI dal DOM.
-   Supporta anche SD_KPI via postMessage. */
+/* public/sd-triggers.js — apre la chat su “Calcola” e invia KPI reali */
 (function(){
-  let wired = false;
+  const S = {
+    calcBtn: ['#calcolaBtn', '[data-cta="calcola"]', 'button', 'a'],
 
-  // 1) postMessage (se presente)
-  window.addEventListener('message', function(ev){
-    const d = ev && ev.data;
-    if (!d || d.type !== 'SD_KPI') return;
-    runAnalysis(d.payload||{}, d.context ? JSON.stringify(d.context) : '');
-  }, false);
+    // label → valori nel simulatore (fallback a ricerca testuale vicino)
+    labels: {
+      revenue: ['Fatturato stimato'],                  // € 3.250
+      budget:  ['Budget ADV mensile'],                 // € 1.590
+      roi:     ['ROI previsionale'],                   // -95,36%
+      roas:    ['ROAS stimato'],                       // 0,2x
+      profit:  ['Perdita mensile','Utile mensile'],    // € -2.570 / € 1.234
+      cpl:     ['CPL stimato'],                        // € 30
+      cpa:     ['CPA stimato']                         // € 318
+    }
+  };
 
-  // 2) click su "Calcola la tua crescita"
-  function textContains(el, txt){
-    return el && typeof el.innerText==='string' && el.innerText.toLowerCase().includes(txt.toLowerCase());
-  }
-  function findCalcButtons(){
-    const all = Array.from(document.querySelectorAll('button, a, [role="button"]'));
-    return all.filter(el => textContains(el,'calcola la tua crescita'));
-  }
-  function wireCalc(){
-    const btns = findCalcButtons();
-    btns.forEach(b=>{
-      if (b.__sdw) return;
-      b.__sdw = 1;
-      b.addEventListener('click', () => {
-        setTimeout(()=>{ runAnalysis(scrapeKPIFromDOM(), 'da pulsante "Calcola la tua crescita"'); }, 700);
-      });
-    });
-  }
-  function boot(){
-    if (wired) return; wired=true;
-    wireCalc();
-    const mo = new MutationObserver(()=> wireCalc());
-    mo.observe(document.body, {childList:true, subtree:true});
-  }
-
-  // 3) scraping KPI dal DOM
-  const nrm = s => (s||'').replace(/\s+/g,' ').trim();
-  function pickNumberFrom(el){
-    if (!el) return null;
-    const t = el.innerText || '';
-    const m = t.match(/-?\s*€?\s*[0-9.\s]+(?:,\d+)?\s*(?:€)?|-?\s*\d+(?:,\d+)?\s*%|\d+(?:,\d+)?\s*x/gi);
-    return m ? m[0] : null;
-  }
-  function parseCurrency(str){
-    if (!str) return null;
-    let s = (''+str).replace(/[^\d,\.\-\,]/g,'');
-    if (s.indexOf(',')>-1 && s.indexOf('.')>-1){ s=s.replace(/\./g,'').replace(',','.'); }
-    else if (s.indexOf(',')>-1){ s=s.replace(',','.'); }
-    const v = parseFloat(s);
-    return isNaN(v) ? null : v;
-  }
-  function parsePercent(str){
-    if (!str) return null;
-    let s=(''+str).replace('%','').replace(/\./g,'').replace(',','.');
-    const v=parseFloat(s);
-    return isNaN(v)?null:v;
-  }
-  function parseRatio(str){
-    if (!str) return null;
-    let s=(''+str).toLowerCase().replace('x','').replace(/\./g,'').replace(',','.');
-    const v=parseFloat(s);
-    return isNaN(v)?null:v;
+  function normNum(txt){
+    if (!txt) return null;
+    txt = (txt+'').replace(/\s/g,'');
+    // percentuali
+    if (/%/.test(txt)) {
+      let v = parseFloat(txt.replace('%','').replace(',','.'));
+      return isNaN(v) ? null : v;
+    }
+    // roas "0,2x"
+    if (/x$/i.test(txt)) {
+      let v = parseFloat(txt.replace('x','').replace(',','.'));
+      return isNaN(v) ? null : v;
+    }
+    // euro "€ -2.570"
+    txt = txt.replace(/[€\.]/g,'').replace(',','.');
+    let n = parseFloat(txt);
+    return isNaN(n) ? null : n;
   }
 
   function findByLabel(label){
-    const nodes = Array.from(document.querySelectorAll('div,section,article,li,span,p,h3,h4'));
-    const lab = nodes.find(n => nrm(n.innerText).toLowerCase().includes(label.toLowerCase()));
-    if (!lab) return null;
+    // cerca un nodo che contenga il testo label e prendi il valore più vicino
+    const all = Array.from(document.querySelectorAll('body *')).filter(n=>{
+      return n.childElementCount===0 && n.textContent && n.textContent.trim().length<=64;
+    });
+    // best candidate con label
+    let idx = all.findIndex(n => (n.textContent||'').trim().toLowerCase().includes(label.toLowerCase()));
+    if (idx<0) return null;
 
-    const candidates = [lab, lab.nextElementSibling, lab.parentElement, lab.parentElement && lab.parentElement.nextElementSibling].filter(Boolean);
-
-    for (const c of candidates){
-      const raw = pickNumberFrom(c);
-      if (raw) return raw;
-      const deep = Array.from(c.querySelectorAll('*')).map(pickNumberFrom).find(Boolean);
-      if (deep) return deep;
+    // cerca entro i successivi 6 nodi una cifra
+    for (let i=idx;i<Math.min(all.length, idx+8);i++){
+      const t = (all[i].textContent||'').trim();
+      if (/[0-9]/.test(t) && (/[€%x]/.test(t) || /^[0-9\.\,\-\s]+$/.test(t))) {
+        const v = normNum(t);
+        if (v!==null) return v;
+      }
     }
     return null;
   }
 
-  function scrapeKPIFromDOM(){
+  function readKPI(){
     const out = {};
-
-    const revRaw = findByLabel('Fatturato stimato');
-    const budRaw = findByLabel('Budget ADV mensile');
-    const roiRaw = findByLabel('ROI previsionale');
-    const roasRaw= findByLabel('ROAS stimato');
-    const cplRaw = findByLabel('CPL stimato');
-    const cpaRaw = findByLabel('CPA stimato');
-
-    if (revRaw!=null)  out.revenue = parseCurrency(revRaw);
-    if (budRaw!=null)  out.budget  = parseCurrency(budRaw);
-    if (roiRaw!=null)  out.roi     = parsePercent(roiRaw);
-    if (roasRaw!=null) out.roas    = parseRatio(roasRaw);
-    if (cplRaw!=null)  out.cpl     = parseCurrency(cplRaw);
-    if (cpaRaw!=null)  out.cpa     = parseCurrency(cpaRaw);
-
-    let profitRaw = findByLabel('Perdita mensile');
-    let p = parseCurrency(profitRaw);
-    if (p!=null) out.profit = -Math.abs(p);
-    else{
-      profitRaw = findByLabel('Utile mensile');
-      p = parseCurrency(profitRaw);
-      if (p!=null) out.profit = Math.abs(p);
+    for (const key of Object.keys(S.labels)) {
+      const labels = S.labels[key];
+      let v = null;
+      for (const L of labels) { v = findByLabel(L); if (v!==null) break; }
+      out[key] = v;
     }
-
-    // fallback pillole in alto
-    if (out.revenue==null){
-      const pill = Array.from(document.querySelectorAll('div,span')).find(n=>/Fatturato:\s*/i.test(n.innerText||''));
-      if (pill){ const raw=pickNumberFrom(pill); const v=parseCurrency(raw); if(v!=null) out.revenue=v; }
-    }
-    if (out.roi==null){
-      const pill = Array.from(document.querySelectorAll('div,span')).find(n=>/ROI:\s*/i.test(n.innerText||''));
-      if (pill){ const raw=pickNumberFrom(pill); const v=parsePercent(raw); if(v!=null) out.roi=v; }
-    }
-    if (out.profit==null){
-      const pill = Array.from(document.querySelectorAll('div,span')).find(n=>/Perdita:\s*/i.test(n.innerText||''));
-      if (pill){ const raw=pickNumberFrom(pill); const v=parseCurrency(raw); if(v!=null) out.profit=-Math.abs(v); }
-    }
-
     return out;
   }
 
-  function runAnalysis(kpi, note){
-    if (!window.SuiteAssistantChat || typeof window.SuiteAssistantChat.analyseKPIsSilently!=='function'){
-      return setTimeout(()=>runAnalysis(kpi,note), 250);
-    }
-    const hasAny = kpi && (kpi.roi!=null || kpi.roas!=null || kpi.budget!=null || kpi.revenue!=null || kpi.profit!=null);
-    if (!hasAny) return;
-    window.SuiteAssistantChat.analyseKPIsSilently(kpi, note||'');
+  function openAndAnalyse(){
+    if (!window.SuiteAssistantChat) return;
+    const kpi = readKPI();
+    const ctx  = ''; // volendo puoi aggiungere settore/canale se hai badge in pagina
+    window.SuiteAssistantChat.analyseKPIsSilently(kpi, ctx);
   }
 
-  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  function hookCalc(){
+    const btn = (S.calcBtn
+      .map(sel=>Array.from(document.querySelectorAll(sel)))
+      .flat())
+      .find(el => /calcola/i.test(el.textContent||''));
+    if (!btn || btn.__sdw) return;
+    btn.__sdw = 1;
+    btn.addEventListener('click', () => setTimeout(openAndAnalyse, 20));
+  }
 
-  console.log('[SD] sd-triggers.js pronto (click + scraping KPI)');
+  // non aprire mai da soli: solo on demand (click calcola o apertura manuale)
+  function onReady(){
+    hookCalc();
+    // se la chat non è mai stata aperta manualmente, mostra solo la bubble
+    if (!document.getElementById('sdw-bubble') && window.SuiteAssistantChat) {
+      window.SuiteAssistantChat.open({ autostart:false }); // monta bubble, non apre il pannello
+      window.SuiteAssistantChat.close();
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onReady);
+  else onReady();
+
+  // in caso di SPA/aggiornamenti dinamici
+  const mo = new MutationObserver(hookCalc);
+  mo.observe(document.documentElement, {childList:true, subtree:true});
+  console.log('[SD] sd-triggers.js pronto');
 })();
