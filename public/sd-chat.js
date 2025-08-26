@@ -33,7 +33,8 @@
     background:linear-gradient(180deg, rgba(10,13,23,0), #0a0d17 65%);
     pointer-events:none;border-bottom-left-radius:14px;border-bottom-right-radius:14px;
   }
-  .sdw-tools{display:flex;gap:14px;padding:6px 2px 0 2px}
+  /* toggle sotto al messaggio */
+  .sdw-tools{display:block;margin-top:8px}
   .sdw-toggle{background:transparent;border:0;color:#9dc1ff;text-decoration:underline;cursor:pointer;padding:0;font-weight:700}
   /* quick replies */
   .sdw-quick{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
@@ -76,7 +77,7 @@
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
     bubble.textContent = '🤖 Assistente AI';
-    bubble.onclick = () => open({ autostart: true }); // mostra benvenuto all’apertura manuale
+    bubble.onclick = () => open(); // mostra benvenuto se chat vuota
     document.body.appendChild(bubble);
     bubble.style.display = 'inline-flex';
 
@@ -126,7 +127,7 @@
     return row;
   }
 
-  // Collassa se troppo lungo + toggle
+  // Collassa se troppo lungo + toggle (sotto al messaggio)
   function applyCollapsible(row, resetTop){
     if (!row || row.__collapsibleApplied) return;
     const msg = row.querySelector('.sdw-msg');
@@ -146,7 +147,8 @@
         if (collapsed) body.scrollTop = row.offsetTop - 8;
       };
       tools.appendChild(tgl);
-      row.appendChild(tools);
+      // << appendiamo SOTTO il testo, dentro il balloon
+      msg.appendChild(tools);
       row.__collapsibleApplied = true;
       if (resetTop) body.scrollTop = row.offsetTop - 8;
     });
@@ -170,7 +172,7 @@ Sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`
     options.forEach(label=>{
       const b = document.createElement('button');
       b.className = 'sdw-chip'; b.type='button'; b.textContent = label;
-      b.onclick = () => ask(label, {silent:true}); // niente riga “me”
+      b.onclick = () => ask(label, {silent:true}); // non mostra “Tu: …”
       qr.appendChild(b);
     });
     wRow.appendChild(qr);
@@ -215,10 +217,9 @@ Usa **grassetto** per concetti chiave ed elenchi quando utili. Chiudi sempre con
   }
 
   // ====== API pubbliche per i trigger ======
-  function open(opts={}) {
+  function open() {
     mount(); showPanel();
-    // benvenuto se richiesto o se chat vuota
-    if (opts.autostart || body.childElementCount===0) welcomeIfEmpty();
+    welcomeIfEmpty(); // sempre se chat vuota
   }
   function close(){ hidePanel(); }
 
