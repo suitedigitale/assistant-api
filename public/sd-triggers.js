@@ -40,13 +40,12 @@
   function pickNumberFrom(el){
     if (!el) return null;
     const t = el.innerText || '';
-    // match numeri con € / percentuali / x
     const m = t.match(/-?\s*€?\s*[0-9.\s]+(?:,\d+)?\s*(?:€)?|-?\s*\d+(?:,\d+)?\s*%|\d+(?:,\d+)?\s*x/gi);
     return m ? m[0] : null;
   }
   function parseCurrency(str){
     if (!str) return null;
-    let s = (''+str).replace(/[^\d,\.\-]/g,'');
+    let s = (''+str).replace(/[^\d,\.\-\,]/g,'');
     if (s.indexOf(',')>-1 && s.indexOf('.')>-1){ s=s.replace(/\./g,'').replace(',','.'); }
     else if (s.indexOf(',')>-1){ s=s.replace(',','.'); }
     const v = parseFloat(s);
@@ -66,17 +65,11 @@
   }
 
   function findByLabel(label){
-    // cerca prima i "card" con label
     const nodes = Array.from(document.querySelectorAll('div,section,article,li,span,p,h3,h4'));
     const lab = nodes.find(n => nrm(n.innerText).toLowerCase().includes(label.toLowerCase()));
     if (!lab) return null;
 
-    const candidates = [
-      lab,
-      lab.nextElementSibling,
-      lab.parentElement,
-      lab.parentElement && lab.parentElement.nextElementSibling
-    ].filter(Boolean);
+    const candidates = [lab, lab.nextElementSibling, lab.parentElement, lab.parentElement && lab.parentElement.nextElementSibling].filter(Boolean);
 
     for (const c of candidates){
       const raw = pickNumberFrom(c);
@@ -90,7 +83,6 @@
   function scrapeKPIFromDOM(){
     const out = {};
 
-    // card principali
     const revRaw = findByLabel('Fatturato stimato');
     const budRaw = findByLabel('Budget ADV mensile');
     const roiRaw = findByLabel('ROI previsionale');
@@ -105,7 +97,6 @@
     if (cplRaw!=null)  out.cpl     = parseCurrency(cplRaw);
     if (cpaRaw!=null)  out.cpa     = parseCurrency(cpaRaw);
 
-    // utile/perdita
     let profitRaw = findByLabel('Perdita mensile');
     let p = parseCurrency(profitRaw);
     if (p!=null) out.profit = -Math.abs(p);
@@ -115,7 +106,7 @@
       if (p!=null) out.profit = Math.abs(p);
     }
 
-    // fallback extra: “pillole” in alto (Perdita:, ROI:, Fatturato:)
+    // fallback pillole in alto
     if (out.revenue==null){
       const pill = Array.from(document.querySelectorAll('div,span')).find(n=>/Fatturato:\s*/i.test(n.innerText||''));
       if (pill){ const raw=pickNumberFrom(pill); const v=parseCurrency(raw); if(v!=null) out.revenue=v; }
@@ -132,7 +123,6 @@
     return out;
   }
 
-  // 4) avvio analisi
   function runAnalysis(kpi, note){
     if (!window.SuiteAssistantChat || typeof window.SuiteAssistantChat.analyseKPIsSilently!=='function'){
       return setTimeout(()=>runAnalysis(kpi,note), 250);
@@ -142,7 +132,6 @@
     window.SuiteAssistantChat.analyseKPIsSilently(kpi, note||'');
   }
 
-  // bootstrap
   if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 
