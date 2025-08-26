@@ -288,3 +288,4 @@ Fornisci una lettura in 4–6 punti, usando il **condizionale** (proiezioni).
 
   console.log('[SD] sd-chat.js pronto');
 })();
+
