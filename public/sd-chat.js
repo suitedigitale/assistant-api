@@ -1,4 +1,4 @@
-/* public/sd-chat.js — bubble + UI + invii “silenti” + link cliccabili + anteprima messaggi */
+/* public/sd-chat.js — bubble + UI + quick replies + anteprima messaggi + link bianchi */
 (function () {
   // ====== CONFIG ======
   const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant';
@@ -31,11 +31,14 @@
   .sdw-collapsed .sdw-msg::after{
     content:"";position:absolute;left:0;right:0;bottom:0;height:56px;
     background:linear-gradient(180deg, rgba(10,13,23,0), #0a0d17 65%);
-    pointer-events:none;
-    border-bottom-left-radius:14px;border-bottom-right-radius:14px;
+    pointer-events:none;border-bottom-left-radius:14px;border-bottom-right-radius:14px;
   }
   .sdw-tools{display:flex;gap:14px;padding:6px 2px 0 2px}
   .sdw-toggle{background:transparent;border:0;color:#9dc1ff;text-decoration:underline;cursor:pointer;padding:0;font-weight:700}
+  /* quick replies */
+  .sdw-quick{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .sdw-chip{background:transparent;border:1px solid rgba(255,255,255,.18);color:#cfd3e9;border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer}
+  .sdw-chip:hover{border-color:#9dc1ff;color:#fff}
   #sdw-foot{display:flex;gap:8px;padding:10px;border-top:1px solid rgba(255,255,255,.06);background:#0f1220}
   #sdw-input{flex:1;background:#0c1026;border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#e6e8ee;padding:10px;outline:none}
   #sdw-input:focus{border-color:var(--sd-accent);box-shadow:0 0 0 3px var(--sd-ring)}
@@ -43,7 +46,7 @@
   #sdw-cta{position:sticky;bottom:0;margin:8px 0;background:#ffece6;color:#1a1b2e;border:1px solid #ffd1c4;border-radius:12px;padding:10px 12px;text-align:center;font-weight:800;cursor:pointer}
   #sdw-cta:hover{filter:brightness(1.02)}
   #sdw-bubble{position:fixed;right:22px;bottom:22px;background:#7b5cff;color:#fff;border:0;border-radius:999px;padding:12px 16px;box-shadow:0 10px 26px rgba(0,0,0,.35);cursor:pointer;display:none;z-index:999999}
-  /* link sempre bianchi */
+  /* link sempre bianchi (anche markdown e url “nudi”) */
   #sdw-body a, a.sdw-link{color:#fff !important;text-decoration:underline}
   #sdw-body a:hover{opacity:.92}
   `;
@@ -53,21 +56,13 @@
   const toHTML = (txt) => {
     if (txt == null) return '';
     let h = String(txt);
-
-    // **bold**
-    h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-    // Titoli "**Titolo:**" → <h4>
-    h = h.replace(/\*\*(.+?)\*\:\s*/g, '<h4>$1</h4>');
-
-    // Link Markdown [testo](url)
-    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" class="sdw-link" target="_blank" rel="noopener">$1</a>');
-    // URL nudi → link
-    h = h.replace(/(^|[\s(])((https?:\/\/[^\s<>()\]\}]+))(?![^<]*>)/g, '$1<a href="$2" class="sdw-link" target="_blank" rel="noopener">$2</a>');
-
-    // Liste "- "
-    if (/^- /m.test(h)) h = '<ul>'+h.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
-
+    h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');                      // **bold**
+    h = h.replace(/\*\*(.+?)\*\:\s*/g, '<h4>$1</h4>');                            // **Titolo:**
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,                        // [label](url)
+                '<a href="$2" class="sdw-link" target="_blank" rel="noopener">$1</a>');
+    h = h.replace(/(^|[\s(])((https?:\/\/[^\s<>()\]\}]+))(?![^<]*>)/g,            // url nudo
+                '$1<a href="$2" class="sdw-link" target="_blank" rel="noopener">$2</a>');
+    if (/^- /m.test(h)) h = '<ul>'+h.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>'; // liste "- "
     return h.replace(/\n/g,'<br/>');
   };
 
@@ -81,7 +76,7 @@
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
     bubble.textContent = '🤖 Assistente AI';
-    bubble.onclick = () => open({ autostart: false });
+    bubble.onclick = () => open({ autostart: true }); // mostra benvenuto all’apertura manuale
     document.body.appendChild(bubble);
     bubble.style.display = 'inline-flex';
 
@@ -123,11 +118,19 @@
   function showPanel(){ root.classList.add('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'none'; }
   function hidePanel(){ root.classList.remove('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'inline-flex'; }
 
-  // Rende una risposta AI collassabile se troppo lunga
-  function makeCollapsible(row){
+  function addRow(role, textHTML) {
+    const row = document.createElement('div'); row.className = 'sdw-row ' + role;
+    const msg = document.createElement('div'); msg.className = 'sdw-msg'; msg.innerHTML = textHTML;
+    row.appendChild(msg); body.appendChild(row);
+    body.scrollTop = row.offsetTop - 8; // mantieni la vista sull’inizio del messaggio
+    return row;
+  }
+
+  // Collassa se troppo lungo + toggle
+  function applyCollapsible(row, resetTop){
+    if (!row || row.__collapsibleApplied) return;
     const msg = row.querySelector('.sdw-msg');
     if (!msg) return;
-    // misura a layout pronto
     requestAnimationFrame(() => {
       if (msg.scrollHeight <= 220) return;
       row.classList.add('sdw-collapsed');
@@ -140,39 +143,53 @@
       tgl.onclick = () => {
         const collapsed = row.classList.toggle('sdw-collapsed');
         tgl.textContent = collapsed ? 'Leggi tutto' : 'Mostra meno';
-        if (collapsed) body.scrollTop = row.offsetTop - 8; // torna all’inizio del messaggio
+        if (collapsed) body.scrollTop = row.offsetTop - 8;
       };
       tools.appendChild(tgl);
       row.appendChild(tools);
-      // assicurati di vedere l’inizio del messaggio
-      body.scrollTop = row.offsetTop - 8;
+      row.__collapsibleApplied = true;
+      if (resetTop) body.scrollTop = row.offsetTop - 8;
     });
   }
 
-  function addRow(role, textHTML) {
-    const row = document.createElement('div'); row.className = 'sdw-row ' + role;
-    const msg = document.createElement('div'); msg.className = 'sdw-msg'; msg.innerHTML = textHTML;
-    row.appendChild(msg); body.appendChild(row);
-    body.scrollTop = row.offsetTop - 8;
-    if (role === 'ai') makeCollapsible(row);
-    return row;
+  // Messaggio di benvenuto + quick replies (solo se chat vuota)
+  function welcomeIfEmpty(){
+    if (body.childElementCount > 0) return;
+    const wRow = addRow('ai', toHTML(
+      `Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**. 
+Sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`
+    ));
+    // quick replies
+    const qr = document.createElement('div'); qr.className = 'sdw-quick';
+    const options = [
+      'Cos’è Suite Digitale?',
+      'Perché scegliere Suite Digitale?',
+      'Come prenotare la consulenza gratuita?',
+      'Come calcolate i KPI nel simulatore?'
+    ];
+    options.forEach(label=>{
+      const b = document.createElement('button');
+      b.className = 'sdw-chip'; b.type='button'; b.textContent = label;
+      b.onclick = () => ask(label, {silent:true}); // niente riga “me”
+      qr.appendChild(b);
+    });
+    wRow.appendChild(qr);
   }
 
   // ====== Backend call (silente possibile) ======
   async function ask(prompt, opts={silent:false, meta:null}) {
     if (!opts.silent) addRow('me', toHTML(prompt));
-    const loaderRow = addRow('ai', toHTML('L\'assistente sta scrivendo…'));
+    const loaderRow = addRow('ai', toHTML("L'assistente sta scrivendo…"));
 
     const CONTEXT = `
 Sei l’Assistente AI di **Suite Digitale**. Tono: cordiale, professionale, motivante.
 Obiettivo: aiutare l'utente a capire KPI simulati e guidarlo verso una **Consulenza Gratuita**.
 Ricorda i benefici: uniamo Marketing & Vendite in un unico team (strategist, media buyer, venditori),
 Piattaforma all-in-one, funnel, CRM, automazioni, lead generation, presa appuntamenti: tutto coordinato.
-Se la domanda non è pertinente al marketing/servizi Suite Digitale, spiega che sei specializzato e invita a scriverci:
+Se la domanda non è pertinente ai nostri servizi, spiega che sei specializzato e invita a scriverci:
 **marketing@suitedigitale.it** o **+39 351 509 4722**.
-Usa **grassetto** per concetti chiave ed elenchi quando utili. Chiudi con:
-“**Vuoi andare a fondo con il tuo caso?** Prenota con il bottone 👇”.
-`.trim();
+Usa **grassetto** per concetti chiave ed elenchi quando utili. Chiudi sempre con:
+“**Vuoi andare a fondo con il tuo caso?** Prenota con il bottone 👇”.`.trim();
 
     try {
       const res = await fetch(ENDPOINT, {
@@ -188,27 +205,24 @@ Usa **grassetto** per concetti chiave ed elenchi quando utili. Chiudi con:
       const j = await res.json().catch(() => ({}));
       const out = (j && (j.text || j.message)) ? j.text || j.message : JSON.stringify(j);
       loaderRow.querySelector('.sdw-msg').innerHTML = toHTML(out);
-      makeCollapsible(loaderRow);
+      applyCollapsible(loaderRow, true);
     } catch (e) {
       loaderRow.querySelector('.sdw-msg').innerHTML = toHTML(
         `Non riesco a contattare il server ora. Intanto posso aiutarti con indicazioni generali e prepararti alla **Consulenza Gratuita** (bottone 👇).`
       );
-      makeCollapsible(loaderRow);
+      applyCollapsible(loaderRow, true);
     }
   }
 
   // ====== API pubbliche per i trigger ======
   function open(opts={}) {
     mount(); showPanel();
-    if (opts.autostart) {
-      ask(
-        `Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**. Intanto sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`,
-        {silent:false}
-      );
-    }
+    // benvenuto se richiesto o se chat vuota
+    if (opts.autostart || body.childElementCount===0) welcomeIfEmpty();
   }
   function close(){ hidePanel(); }
 
+  // Usato dai trigger dopo il click su “Calcola”
   function analyseKPIsSilently(kpi, contextNote) {
     mount(); showPanel();
     const k = kpi || {};
@@ -219,11 +233,10 @@ ${contextNote ? 'Contesto: ' + contextNote : ''}
 
 Rispondi al **condizionale** in 4–6 punti:
 - interpretazione dei numeri;
-- perché è utile un team integrato marketing+vendite;
+- perché è utile un team integrato marketing+vendite (CLOSETING);
 - se ROI/ROAS fossero deboli: invito alla consulenza per rimettere in rotta;
 - se i numeri fossero buoni: come si potrebbe scalare con metodo e controllo KPI.
-Chiudi con: “**Vuoi andare a fondo con il tuo caso?** Prenota con il bottone 👇”.
-`.trim();
+Chiudi con: “**Vuoi andare a fondo con il tuo caso?** Prenota con il bottone 👇”.`.trim();
     ask(prompt, {silent:true, meta:{kpi}});
   }
 
