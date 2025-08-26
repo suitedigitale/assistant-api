@@ -11,15 +11,14 @@
     roi:                '#roiKPI',                  // ROI previsionale (%)
     roas:               '#roasKPI',                 // ROAS stimato (x)
     profit:             '#utilePerditaKPI',         // Utile/Perdita mensile
-    cpl:                '#cplKPI',                  // CPL stimato
-    cpa:                '#cpaKPI',                  // CPA stimato
-    lead:               '#leadKPI',                 // Lead stimati
-    appointments:       '#appuntamentiKPI',         // Appuntamenti di vendita
-    convLeadApp:        '#convLeadAppKPI',          // Conv. Lead/Appuntamenti (%)
-    convAppCliente:     '#convAppClienteKPI'        // Conv. Appunt./Clienti (%)
+    cpl:                '#cplKPI',                  // CPL stimato (se presente)
+    cpa:                '#cpaKPI',                  // CPA stimato (se presente)
+    lead:               '#leadKPI',
+    appointments:       '#appuntamentiKPI',
+    convLeadApp:        '#convLeadAppKPI',
+    convAppCliente:     '#convAppClienteKPI'
   };
 
-  // ====== Helpers ======
   function readNumber(sel) {
     const el = document.querySelector(sel);
     if (!el) return null;
@@ -76,7 +75,6 @@
       await waitKPIReady(2500);
       const kpi = collectKPI();
       const ctx = collectContext();
-
       if (!window.SuiteAssistantChat) return;
       window.SuiteAssistantChat.open({ autostart: false });
       window.SuiteAssistantChat.analyseKPIsSilently(kpi, JSON.stringify(ctx));
@@ -97,4 +95,3 @@
     bind();
   }
 })();
-
