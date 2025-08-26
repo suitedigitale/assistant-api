@@ -30,13 +30,13 @@
   .sdw-collapsed .sdw-msg{max-height:220px;overflow:hidden}
   .sdw-collapsed .sdw-msg::after{
     content:"";position:absolute;left:0;right:0;bottom:0;height:56px;
-    background:linear-gradient(180deg, rgba(21,26,51,0), #151a33 70%); /* verso il bg del balloon */
+    background:linear-gradient(180deg, rgba(21,26,51,0), #151a33 70%);
     pointer-events:none;border-bottom-left-radius:14px;border-bottom-right-radius:14px;
   }
-  /* toggle SOTTO al messaggio */
+  /* toggle SOTTO al messaggio (dentro al balloon) */
   .sdw-tools{display:block;margin-top:8px;text-align:left}
   .sdw-toggle{background:transparent;border:0;color:#9dc1ff;text-decoration:underline;cursor:pointer;padding:0;font-weight:700}
-  /* quick replies (pallini) – dentro al balloon di benvenuto */
+  /* quick replies */
   .sdw-quick{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .sdw-chip{background:transparent;border:1px solid rgba(255,255,255,.18);color:#cfd3e9;border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer}
   .sdw-chip:hover{border-color:#9dc1ff;color:#fff}
@@ -59,10 +59,8 @@
     let h = String(txt);
     h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     h = h.replace(/\*\*(.+?)\*\:\s*/g, '<h4>$1</h4>');
-    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" class="sdw-link" target="_blank" rel="noopener">$1</a>');
-    h = h.replace(/(^|[\s(])((https?:\/\/[^\s<>()\]\}]+))(?![^<]*>)/g,
-      '$1<a href="$2" class="sdw-link" target="_blank" rel="noopener">$2</a>');
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" class="sdw-link" target="_blank" rel="noopener">$1</a>');
+    h = h.replace(/(^|[\s(])((https?:\/\/[^\s<>()\]\}]+))(?![^<]*>)/g,'$1<a href="$2" class="sdw-link" target="_blank" rel="noopener">$2</a>');
     if (/^- /m.test(h)) h = '<ul>'+h.replace(/^- (.+)$/gm,'<li>$1</li>')+'</ul>';
     return h.replace(/\n/g,'<br/>');
   };
@@ -72,17 +70,12 @@
 
   function mount() {
     if (root) return;
-    // Bubble
     const bubble = document.createElement('button');
-    bubble.id = 'sdw-bubble';
-    bubble.type = 'button';
-    bubble.textContent = '🤖 Assistente AI';
+    bubble.id = 'sdw-bubble'; bubble.type='button'; bubble.textContent='🤖 Assistente AI';
     bubble.onclick = () => open();
-    document.body.appendChild(bubble);
-    bubble.style.display = 'inline-flex';
+    document.body.appendChild(bubble); bubble.style.display='inline-flex';
 
-    // Panel
-    root = document.createElement('div'); root.id = 'sdw-root';
+    root = document.createElement('div'); root.id='sdw-root';
     root.innerHTML = `
       <div id="sdw-panel">
         <div id="sdw-head">
@@ -90,9 +83,7 @@
           <button id="sdw-close" aria-label="Chiudi">×</button>
         </div>
         <div id="sdw-body"></div>
-        <div id="sdw-foot">
-          <button id="sdw-cta">Richiedi un’analisi gratuita 👉</button>
-        </div>
+        <div id="sdw-foot"><button id="sdw-cta">Richiedi un’analisi gratuita 👉</button></div>
         <div id="sdw-foot">
           <input id="sdw-input" type="text" placeholder="Scrivi qui… (es. rivediamo il budget, consigli)">
           <button id="sdw-send">Invia</button>
@@ -106,102 +97,94 @@
     ctaBtn  = root.querySelector('#sdw-cta');
 
     root.querySelector('#sdw-close').onclick = () => close();
-    ctaBtn.onclick = () => { window.open(CTA_URL, '_blank'); };
+    ctaBtn.onclick = () => window.open(CTA_URL,'_blank');
 
     const fire = () => {
-      const v = (input.value || '').trim(); if (!v) return;
-      input.value = '';
-      ask(v, {silent:false});
+      const v = (input.value||'').trim(); if (!v) return;
+      input.value=''; ask(v,{silent:false});
     };
     sendBtn.onclick = fire;
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fire(); } });
+    input.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();fire();}});
   }
-  function showPanel(){ root.classList.add('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'none'; }
-  function hidePanel(){ root.classList.remove('sdw-visible'); document.getElementById('sdw-bubble').style.display = 'inline-flex'; }
+  function showPanel(){ root.classList.add('sdw-visible'); document.getElementById('sdw-bubble').style.display='none'; }
+  function hidePanel(){ root.classList.remove('sdw-visible'); document.getElementById('sdw-bubble').style.display='inline-flex'; }
 
-  function addRow(role, html) {
-    const row = document.createElement('div'); row.className = 'sdw-row ' + role;
-    const msg = document.createElement('div'); msg.className = 'sdw-msg'; msg.innerHTML = html;
+  function addRow(role, html){
+    const row = document.createElement('div'); row.className='sdw-row '+role;
+    const msg = document.createElement('div'); msg.className='sdw-msg'; msg.innerHTML=html;
     row.appendChild(msg); body.appendChild(row);
-    body.scrollTop = row.offsetTop - 8; // resta all'inizio del messaggio
+    body.scrollTop = row.offsetTop - 8; // rimani all’inizio del messaggio
     return row;
   }
 
-  // Mostra "Leggi tutto" se testo lungo (altezza o caratteri / numero di bullet)
-  function applyCollapsible(row, resetTop){
+  // Collasso “sempre”, poi verifico overflow; se non serve, rimuovo e nascondo il toggle
+  function applyCollapsible(row){
     if (!row || row.__collapsibleApplied) return;
-    const msg = row.querySelector('.sdw-msg');
-    if (!msg) return;
+    const msg = row.querySelector('.sdw-msg'); if (!msg) return;
 
-    requestAnimationFrame(() => {
-      const longByHeight = msg.scrollHeight > 200;
-      const longByText   = (msg.innerText || '').trim().length > 260;
-      const longByBullets= (msg.innerHTML.match(/<li/gi)||[]).length >= 4;
-      if (!(longByHeight || longByText || longByBullets)) return;
+    // Premesso: collassiamo e poi verifichiamo overflow (robusto su tutti i casi)
+    row.classList.add('sdw-collapsed');
 
-      row.classList.add('sdw-collapsed');
+    requestAnimationFrame(()=>{
+      const need = msg.scrollHeight > msg.clientHeight + 4; // overflow reale?
+      if (!need){
+        row.classList.remove('sdw-collapsed');
+        row.__collapsibleApplied = true;
+        return;
+      }
       const tools = document.createElement('div');
-      tools.className = 'sdw-tools';
+      tools.className='sdw-tools';
       const tgl = document.createElement('button');
-      tgl.className = 'sdw-toggle';
-      tgl.type = 'button';
-      tgl.textContent = 'Leggi tutto';
+      tgl.className='sdw-toggle'; tgl.type='button'; tgl.textContent='Leggi tutto';
       tgl.onclick = () => {
         const collapsed = row.classList.toggle('sdw-collapsed');
         tgl.textContent = collapsed ? 'Leggi tutto' : 'Mostra meno';
-        if (collapsed) body.scrollTop = row.offsetTop - 8;
+        body.scrollTop = row.offsetTop - 8;
       };
       tools.appendChild(tgl);
-      msg.appendChild(tools);     // SOTTO al testo, DENTRO il balloon
+      msg.appendChild(tools); // sotto al testo, dentro il balloon
       row.__collapsibleApplied = true;
-      if (resetTop) body.scrollTop = row.offsetTop - 8;
+      body.scrollTop = row.offsetTop - 8; // rimetti l’inizio in vista
     });
   }
 
   function welcomeIfEmpty(){
-    if (body.childElementCount > 0) return;
+    if (body.childElementCount>0) return;
     const row = addRow('ai', toHTML(
 `Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**.
 Sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`));
     const msg = row.querySelector('.sdw-msg');
-    const qr = document.createElement('div'); qr.className = 'sdw-quick';
+    const qr = document.createElement('div'); qr.className='sdw-quick';
     ['Cos’è Suite Digitale?','Perché scegliere Suite Digitale?','Come prenotare la consulenza gratuita?','Come calcolate i KPI nel simulatore?']
       .forEach(label=>{
-        const b = document.createElement('button');
-        b.className = 'sdw-chip'; b.type='button'; b.textContent = label;
-        b.onclick = () => ask(label, {silent:true});
+        const b=document.createElement('button'); b.className='sdw-chip'; b.type='button'; b.textContent=label;
+        b.onclick=()=>ask(label,{silent:true});
         qr.appendChild(b);
       });
     msg.appendChild(qr);
   }
 
-  // ====== Backend call ======
+  // ====== Backend ======
   async function ask(prompt, opts={silent:false, meta:null}) {
     if (!opts.silent) addRow('me', toHTML(prompt));
     const loaderRow = addRow('ai', toHTML("L'assistente sta scrivendo…"));
 
     const CONTEXT = `
 Sei l’Assistente AI di **Suite Digitale**. Tono: cordiale, professionale, motivante.
-Obiettivo: aiutare l'utente a capire KPI simulati e guidarlo verso una **Consulenza Gratuita**.
-Ricorda i benefici: team integrato Marketing & Vendite, piattaforma all-in-one (funnel, ADV, CRM, automazioni) e presa appuntamenti.
-Se la domanda non è pertinente, spiega che sei specializzato e invita a scriverci a **marketing@suitedigitale.it** o **+39 351 509 4722**.
-Usa **grassetto** per concetti chiave; chiudi sempre con: “**Vuoi andare a fondo con il tuo caso?** Prenota con il bottone 👇”.`.trim();
+Obiettivo: spiegare KPI simulati e guidare alla **Consulenza Gratuita** (bottone 👇).
+Ricorda: team integrato Marketing & Vendite, piattaforma all-in-one (funnel, ADV, CRM, automazioni), presa appuntamenti.
+Se domanda off-topic, indica che sei specializzato e dai **marketing@suitedigitale.it** o **+39 351 509 4722**.
+Usa **grassetto** per i punti chiave. Chiudi con: “**Vuoi andare a fondo con il tuo caso?** Prenota con il bottone 👇”.`.trim();
 
-    try {
-      const res = await fetch(ENDPOINT, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ mode:'analysis', prompt, context: CONTEXT, meta: opts.meta || null })
-      });
-      const j = await res.json().catch(() => ({}));
-      const out = (j && (j.text || j.message)) ? j.text || j.message : JSON.stringify(j);
+    try{
+      const res = await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'analysis',prompt,context:CONTEXT,meta:opts.meta||null})});
+      const j = await res.json().catch(()=>({}));
+      const out = (j && (j.text||j.message)) ? j.text||j.message : JSON.stringify(j);
       loaderRow.querySelector('.sdw-msg').innerHTML = toHTML(out);
-      applyCollapsible(loaderRow, true);
-    } catch (e) {
-      loaderRow.querySelector('.sdw-msg').innerHTML = toHTML(
-        `Non riesco a contattare il server ora. Intanto posso aiutarti con indicazioni generali e prepararti alla **Consulenza Gratuita** (bottone 👇).`
-      );
-      applyCollapsible(loaderRow, true);
+      applyCollapsible(loaderRow);
+    }catch(e){
+      loaderRow.querySelector('.sdw-msg').innerHTML = toHTML(`Non riesco a contattare il server ora. Posso comunque darti indicazioni generali e prepararti alla **Consulenza Gratuita** (bottone 👇).`);
+      applyCollapsible(loaderRow);
     }
   }
 
@@ -211,7 +194,7 @@ Usa **grassetto** per concetti chiave; chiudi sempre con: “**Vuoi andare a fon
 
   function analyseKPIsSilently(kpi, contextNote) {
     mount(); showPanel();
-    const k = kpi || {};
+    const k = kpi||{};
     const prompt = `
 Analizza questi KPI simulati (non sono risultati reali ma una stima):
 ROI: ${k.roi ?? 'nd'} | ROAS: ${k.roas ?? 'nd'} | CPL: ${k.cpl ?? 'nd'} | CPA: ${k.cpa ?? 'nd'} | Budget: ${k.budget ?? 'nd'} | Fatturato: ${k.revenue ?? 'nd'} | Utile/Perdita: ${k.profit ?? 'nd'}.
@@ -219,17 +202,15 @@ ${contextNote ? 'Contesto: ' + contextNote : ''}
 
 Rispondi al **condizionale** in 4–6 punti:
 - interpretazione dei numeri;
-- perché è utile un team integrato marketing+vendite (CLOSETING);
-- se ROI/ROAS fossero deboli: invito alla consulenza per rimettere in rotta;
-- se i numeri fossero buoni: come si potrebbe scalare con metodo e controllo KPI.
+- perché serve un team integrato marketing+vendite (CLOSETING);
+- se ROI/ROAS fossero deboli: invito a consulenza per rimettere in rotta;
+- se i numeri fossero buoni: come scalare con metodo e controllo KPI.
 Chiudi con: “**Vuoi andare a fondo con il tuo caso?** Prenota con il bottone 👇”.`.trim();
-    ask(prompt, {silent:true, meta:{kpi}});
+    ask(prompt,{silent:true,meta:{kpi}});
   }
 
   window.SuiteAssistantChat = { open, close, ask, analyseKPIsSilently };
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
-  else mount();
-
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', mount); else mount();
   console.log('[SD] sd-chat.js pronto');
 })();
