@@ -1,4 +1,4 @@
-/* public/sd-chat.js — bubble + UI + quick replies + anteprima messaggi + link bianchi */
+/* public/sd-chat.js — bubble + UI + quick replies + anteprima + typing dots + CTA gradient */
 (function () {
   // ====== CONFIG ======
   const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant';
@@ -17,13 +17,15 @@
   #sdw-title .dot{width:8px;height:8px;background:#22c55e;border-radius:999px;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
   #sdw-close{background:transparent;border:0;color:#e6e8ee;opacity:.8;cursor:pointer;font-size:18px}
   #sdw-body{height:380px;max-height:62vh;overflow:auto;padding:16px 12px;background:#0a0d17;scrollbar-width:thin}
-  .sdw-row{display:flex;flex-direction:column;gap:8px;margin:10px 0;position:relative}
+  .sdw-row{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+  .sdw-row.ai{align-items:flex-start}
+  .sdw-row.me{align-items:flex-end}
   .sdw-msg{max-width:82%;padding:12px 14px;border-radius:14px;line-height:1.45;position:relative}
   .sdw-msg p{margin:.3rem 0}
   .sdw-msg ul{margin:.3rem 0 .8rem 1.1rem}
   .sdw-msg h4{margin:.2rem 0 .4rem 0;font-size:15px;font-weight:800}
-  .ai .sdw-msg{align-self:flex-start;background:#151a33;border:1px solid rgba(255,255,255,.06)}
-  .me .sdw-msg{align-self:flex-end;background:#1b2250;border:1px solid rgba(255,255,255,.1)}
+  .ai .sdw-msg{background:#151a33;border:1px solid rgba(255,255,255,.06)}
+  .me .sdw-msg{background:#1b2250;border:1px solid rgba(255,255,255,.1)}
   /* anteprima (collassato) — overlay solo quando serve */
   .sdw-collapsed .sdw-msg{max-height:220px;overflow:hidden}
   .sdw-collapsed .sdw-msg::after{
@@ -31,23 +33,35 @@
     background:linear-gradient(180deg, rgba(21,26,51,0), #151a33 70%);
     pointer-events:none;border-bottom-left-radius:14px;border-bottom-right-radius:14px;
   }
-  /* toggle SOTTO al balloon */
   .sdw-tools{display:block;margin-top:-2px;padding-left:4px}
   .sdw-toggle{background:transparent;border:0;color:#9dc1ff;text-decoration:underline;cursor:pointer;padding:0;font-weight:700}
   /* quick replies */
   .sdw-quick{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .sdw-chip{background:transparent;border:1px solid rgba(255,255,255,.18);color:#cfd3e9;border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer}
   .sdw-chip:hover{border-color:#9dc1ff;color:#fff}
+  /* input/cta */
   #sdw-foot{display:flex;gap:8px;padding:10px;border-top:1px solid rgba(255,255,255,.06);background:#0f1220}
   #sdw-input{flex:1;background:#0c1026;border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#e6e8ee;padding:10px;outline:none}
   #sdw-input:focus{border-color:var(--sd-accent);box-shadow:0 0 0 3px var(--sd-ring)}
   #sdw-send{background:#7b5cff;border:0;color:#fff;border-radius:10px;padding:0 12px;min-width:68px;cursor:pointer}
-  #sdw-cta{position:sticky;bottom:0;margin:8px 0;background:#ffece6;color:#1a1b2e;border:1px solid #ffd1c4;border-radius:12px;padding:10px 12px;text-align:center;font-weight:800;cursor:pointer}
-  #sdw-cta:hover{filter:brightness(1.02)}
+  #sdw-cta{
+    position:sticky;bottom:0;margin:8px 0;
+    background:linear-gradient(135deg,#FD3F3F 0%,#8930BB 100%);color:#fff;
+    border:0;border-radius:12px;padding:12px 14px;text-align:center;font-weight:800;cursor:pointer;
+    box-shadow:0 8px 22px rgba(137,48,187,.25);
+  }
+  #sdw-cta:hover{filter:brightness(1.03)}
   #sdw-bubble{position:fixed;right:22px;bottom:22px;background:#7b5cff;color:#fff;border:0;border-radius:999px;padding:12px 16px;box-shadow:0 10px 26px rgba(0,0,0,.35);cursor:pointer;display:none;z-index:999999}
   /* link sempre bianchi */
   #sdw-body a, a.sdw-link{color:#fff !important;text-decoration:underline}
   #sdw-body a:hover{opacity:.92}
+  /* typing dots */
+  .sdw-typing{display:inline-flex;align-items:center;gap:6px}
+  .sdw-typing .sdw-txt{opacity:.85}
+  .sdw-dot{width:6px;height:6px;background:#cfd3e9;border-radius:50%;opacity:.3;animation:sdwblink 1.2s infinite ease-in-out}
+  .sdw-dot:nth-child(2){animation-delay:.2s}
+  .sdw-dot:nth-child(3){animation-delay:.4s}
+  @keyframes sdwblink{0%,80%,100%{transform:translateY(0);opacity:.25}40%{transform:translateY(-2px);opacity:1}}
   `;
   const st = document.createElement('style'); st.id = 'sdw-style'; st.textContent = css; document.head.appendChild(st);
 
@@ -115,7 +129,7 @@
     return row;
   }
 
-  // Collassa SEMPRE subito, poi misura con doppio rAF; se non serve, rimuove collasso.
+  // Collassa SEMPRE subito, poi misura; se non serve toglie il collasso
   function applyCollapsible(row){
     if (!row || row.__collapsibleApplied) return;
     const msg = row.querySelector('.sdw-msg'); if (!msg) return;
@@ -129,7 +143,6 @@
         row.__collapsibleApplied = true;
         return;
       }
-      // toggle sotto al balloon (fratello della sdw-msg)
       const tools = document.createElement('div');
       tools.className='sdw-tools';
       const tgl = document.createElement('button');
@@ -144,7 +157,6 @@
       row.__collapsibleApplied = true;
       body.scrollTop = row.offsetTop - 8;
     };
-    // doppio rAF = misura dopo il layout completo (affidabile)
     requestAnimationFrame(()=>requestAnimationFrame(measure));
   }
 
@@ -164,10 +176,22 @@ Sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`));
     msg.appendChild(qr);
   }
 
+  // typing row with animated dots
+  function addTypingRow(){
+    const row = addRow('ai', '');
+    const msg = row.querySelector('.sdw-msg');
+    msg.innerHTML = `
+      <span class="sdw-typing">
+        <span class="sdw-txt">L'assistente sta scrivendo</span>
+        <span class="sdw-dot"></span><span class="sdw-dot"></span><span class="sdw-dot"></span>
+      </span>`;
+    return row;
+  }
+
   // ====== Backend ======
   async function ask(prompt, opts={silent:false, meta:null}) {
     if (!opts.silent) addRow('me', toHTML(prompt));
-    const loaderRow = addRow('ai', toHTML("L'assistente sta scrivendo…"));
+    const loaderRow = addTypingRow(); // animazione
 
     const CONTEXT = `
 Sei l’Assistente AI di **Suite Digitale**. Tono: cordiale, professionale, motivante.
