@@ -2,7 +2,7 @@
 (function () {
   // ====== CONFIG ======
   const ENDPOINT = 'https://assistant-api-xi.vercel.app/api/assistant';
-  const CTA_URL = 'https://www.suitedigitale.it/candidatura/';
+  const CTA_URL  = 'https://www.suitedigitale.it/candidatura/';
 
   // ====== CSS ======
   if (document.getElementById('sdw-style')) return;
@@ -17,24 +17,22 @@
   #sdw-title .dot{width:8px;height:8px;background:#22c55e;border-radius:999px;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
   #sdw-close{background:transparent;border:0;color:#e6e8ee;opacity:.8;cursor:pointer;font-size:18px}
   #sdw-body{height:380px;max-height:62vh;overflow:auto;padding:16px 12px;background:#0a0d17;scrollbar-width:thin}
-  .sdw-row{display:flex;margin:10px 0;position:relative}
+  .sdw-row{display:flex;flex-direction:column;gap:8px;margin:10px 0;position:relative}
   .sdw-msg{max-width:82%;padding:12px 14px;border-radius:14px;line-height:1.45;position:relative}
   .sdw-msg p{margin:.3rem 0}
   .sdw-msg ul{margin:.3rem 0 .8rem 1.1rem}
   .sdw-msg h4{margin:.2rem 0 .4rem 0;font-size:15px;font-weight:800}
-  .ai{justify-content:flex-start}
-  .ai .sdw-msg{background:#151a33;border:1px solid rgba(255,255,255,.06)}
-  .me{justify-content:flex-end}
-  .me .sdw-msg{background:#1b2250;border:1px solid rgba(255,255,255,.1)}
-  /* anteprima (collassato) */
+  .ai .sdw-msg{align-self:flex-start;background:#151a33;border:1px solid rgba(255,255,255,.06)}
+  .me .sdw-msg{align-self:flex-end;background:#1b2250;border:1px solid rgba(255,255,255,.1)}
+  /* anteprima (collassato) — overlay solo quando serve */
   .sdw-collapsed .sdw-msg{max-height:220px;overflow:hidden}
   .sdw-collapsed .sdw-msg::after{
     content:"";position:absolute;left:0;right:0;bottom:0;height:56px;
     background:linear-gradient(180deg, rgba(21,26,51,0), #151a33 70%);
     pointer-events:none;border-bottom-left-radius:14px;border-bottom-right-radius:14px;
   }
-  /* toggle SOTTO al messaggio (dentro al balloon) */
-  .sdw-tools{display:block;margin-top:8px;text-align:left}
+  /* toggle SOTTO al balloon */
+  .sdw-tools{display:block;margin-top:-2px;padding-left:4px}
   .sdw-toggle{background:transparent;border:0;color:#9dc1ff;text-decoration:underline;cursor:pointer;padding:0;font-weight:700}
   /* quick replies */
   .sdw-quick{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -113,25 +111,25 @@
     const row = document.createElement('div'); row.className='sdw-row '+role;
     const msg = document.createElement('div'); msg.className='sdw-msg'; msg.innerHTML=html;
     row.appendChild(msg); body.appendChild(row);
-    body.scrollTop = row.offsetTop - 8; // rimani all’inizio del messaggio
+    body.scrollTop = row.offsetTop - 8; // resta in alto sul nuovo messaggio
     return row;
   }
 
-  // Collasso “sempre”, poi verifico overflow; se non serve, rimuovo e nascondo il toggle
+  // Collassa SEMPRE subito, poi misura con doppio rAF; se non serve, rimuove collasso.
   function applyCollapsible(row){
     if (!row || row.__collapsibleApplied) return;
     const msg = row.querySelector('.sdw-msg'); if (!msg) return;
 
-    // Premesso: collassiamo e poi verifichiamo overflow (robusto su tutti i casi)
     row.classList.add('sdw-collapsed');
 
-    requestAnimationFrame(()=>{
-      const need = msg.scrollHeight > msg.clientHeight + 4; // overflow reale?
+    const measure = () => {
+      const need = msg.scrollHeight > msg.clientHeight + 4;
       if (!need){
         row.classList.remove('sdw-collapsed');
         row.__collapsibleApplied = true;
         return;
       }
+      // toggle sotto al balloon (fratello della sdw-msg)
       const tools = document.createElement('div');
       tools.className='sdw-tools';
       const tgl = document.createElement('button');
@@ -142,10 +140,12 @@
         body.scrollTop = row.offsetTop - 8;
       };
       tools.appendChild(tgl);
-      msg.appendChild(tools); // sotto al testo, dentro il balloon
+      row.appendChild(tools);
       row.__collapsibleApplied = true;
-      body.scrollTop = row.offsetTop - 8; // rimetti l’inizio in vista
-    });
+      body.scrollTop = row.offsetTop - 8;
+    };
+    // doppio rAF = misura dopo il layout completo (affidabile)
+    requestAnimationFrame(()=>requestAnimationFrame(measure));
   }
 
   function welcomeIfEmpty(){
