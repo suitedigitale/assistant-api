@@ -1,107 +1,101 @@
 /* public/sd-triggers.js — apre la chat su “Calcola” e invia KPI leggendo DAGLI ID REALI */
 (function () {
-  // ---- Selettori degli ID reali del simulatore (dal tuo file) ----
-  const SEL = {
+  // ---- ID reali del simulatore ----
+  const ID = {
     revenue: '#fatturatoKPI',             // es: "€ 3.250"
     budget:  '#budgetKPI',                // es: "€ 1.590"
-    canone:  '#canoneSuiteDigitaleKPI',   // es: "€ 1.106" (non usato dal prompt ma lo mando in meta)
+    canone:  '#canoneSuiteDigitaleKPI',   // es: "€ 1.106"
     roi:     '#roiKPI',                   // es: "-95,36%"
     roas:    '#roasKPI',                  // es: "0,2x"
-    profit:  '#utilePerditaKPI',          // es: "€ -2.570" (utile/perdita)
+    profit:  '#utilePerditaKPI',          // es: "€ -2.570"
     cpl:     '#cplKPI',                   // es: "€ 30"
     cpa:     '#cpaKPI'                    // es: "€ 318"
   };
 
-  // ---- Button “Calcola la tua crescita” (dal markup del simulatore) ----
-  const CALC_SELECTORS = ['#calcolaBtn', '[data-cta="calcola"]'];
+  // ---- Bottoni “Calcola la tua crescita” ----
+  const CALC = ['#calcolaBtn', '[data-cta="calcola"]'];
 
-  // ---- Utilità: parsing robusto (formato IT) ----
-  function getText(sel) {
+  // ---- Utilità parsing IT ----
+  function deepText(sel) {
     const el = document.querySelector(sel);
-    return el ? (el.textContent || '').trim() : '';
+    if (!el) return '';
+    let t = (el.innerText || el.textContent || '').trim();
+    if (/[0-9]/.test(t)) return t;
+
+    // se il nodo è “decorativo”, cerca un figlio con numeri
+    const cand = Array.from(el.querySelectorAll('*'))
+      .map(n => (n.innerText || n.textContent || '').trim())
+      .find(s => /[0-9]/.test(s));
+    return cand || '';
   }
-  function toNumber(txt) {
+  function toNum(txt) {
     if (!txt) return null;
-    // rimuovi tutto tranne cifre, segno, virgole/punti, poi normalizza: 1.590 -> 1590,  -95,36% -> -95.36, 0,2x -> 0.2
-    let t = String(txt)
-      .replace(/\s+/g, '')
-      .replace(/[€%x]/gi, '')
-      .replace(/\./g, '')        // separatori migliaia
-      .replace(',', '.');        // decimali IT -> EN
+    let t = String(txt).replace(/\s+/g, '');
+    // rimuovi simboli comuni e normalizza decimali IT
+    t = t.replace(/[€%x]/gi, '').replace(/\./g, '').replace(',', '.');
     const n = parseFloat(t.replace(/[^0-9.\-]/g, ''));
     return isNaN(n) ? null : n;
   }
-
-  function readKPIFromIDs() {
+  function readKPI() {
     const kpi = {
-      revenue: toNumber(getText(SEL.revenue)),
-      budget:  toNumber(getText(SEL.budget)),
-      roi:     toNumber(getText(SEL.roi)),      // percentuale già senza simbolo
-      roas:    toNumber(getText(SEL.roas)),     // 0,2x -> 0.2
-      profit:  toNumber(getText(SEL.profit)),
-      cpl:     toNumber(getText(SEL.cpl)),
-      cpa:     toNumber(getText(SEL.cpa))
+      revenue: toNum(deepText(ID.revenue)),
+      budget:  toNum(deepText(ID.budget)),
+      roi:     toNum(deepText(ID.roi)),
+      roas:    toNum(deepText(ID.roas)),
+      profit:  toNum(deepText(ID.profit)),
+      cpl:     toNum(deepText(ID.cpl)),
+      cpa:     toNum(deepText(ID.cpa))
     };
-    const meta = {
-      canone: toNumber(getText(SEL.canone))
-    };
+    const meta = { canone: toNum(deepText(ID.canone)) };
+
+    // filtra fuori i null così non passiamo zeri finti all’AI
+    Object.keys(kpi).forEach(k => (kpi[k] == null) && delete kpi[k]);
+
+    console.log('[SD] KPI letti:', kpi, 'meta:', meta);
     return { kpi, meta };
   }
 
-  function openAndAnalyse() {
+  function analyse() {
     if (!window.SuiteAssistantChat) return;
-    const { kpi, meta } = readKPIFromIDs();
-
-    // Se non è stato letto nulla, non aprire/analizzare
-    const someValue = Object.values(kpi).some(v => typeof v === 'number' && !isNaN(v));
-    if (!someValue) {
-      console.warn('[SD] KPI non trovati, analisi annullata:', kpi);
+    const { kpi, meta } = readKPI();
+    if (!Object.keys(kpi).length) {
+      console.warn('[SD] Nessun KPI trovato: analisi annullata');
       return;
     }
-
-    // Apri pannello e invia KPI alla funzione silente
-    try {
-      window.SuiteAssistantChat.analyseKPIsSilently(kpi, meta && meta.canone ? `Canone: ${meta.canone}` : '');
-    } catch (e) {
-      console.error('[SD] analyseKPIsSilently error:', e);
-    }
+    // apri e analizza
+    window.SuiteAssistantChat.analyseKPIsSilently(kpi, meta.canone ? `Canone: ${meta.canone}` : '');
   }
 
   function hookCalcOnce() {
-    const btn = CALC_SELECTORS
+    const btn = CALC
       .map(q => Array.from(document.querySelectorAll(q)))
       .flat()
       .find(b => /calcola/i.test((b.textContent || '')));
     if (!btn || btn.__sdHook) return;
-
     btn.__sdHook = true;
+
     btn.addEventListener('click', () => {
-      // dai il tempo al simulatore di aggiornare i numeri a DOM
-      setTimeout(openAndAnalyse, 50);
+      // lascia aggiornare il DOM del simulatore prima di leggere
+      setTimeout(analyse, 250);
     });
-    console.log('[SD] trigger agganciato a:', btn);
+    console.log('[SD] trigger agganciato a', btn);
   }
 
-  // ---- Bootstrap (non apriamo la chat all’avvio: solo bubble invisibile) ----
   function onReady() {
     hookCalcOnce();
 
-    // Assicura che il widget sia montato (bubble) senza aprire il pannello
+    // monta solo la bubble (non aprire il pannello finché l’utente non clicca o non calcola)
     if (window.SuiteAssistantChat && !document.getElementById('sdw-root')) {
-      window.SuiteAssistantChat.open({ autostart: false });
-      window.SuiteAssistantChat.close();
+      try { window.SuiteAssistantChat.open({ autostart: false }); window.SuiteAssistantChat.close(); } catch {}
     }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', onReady);
-  } else {
-    onReady();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onReady);
+  else onReady();
 
-  // Se la pagina è dinamica, ri-aggancia i listener
+  // per contenuti dinamici
   const mo = new MutationObserver(hookCalcOnce);
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
-  console.log('[SD] sd-triggers.js pronto (lettura KPI per ID)');
+  console.log('[SD] sd-triggers.js pronto (lettura KPI per ID, anti-zero)');
 })();
