@@ -30,11 +30,11 @@
   .sdw-collapsed .sdw-msg{max-height:220px;overflow:hidden}
   .sdw-collapsed .sdw-msg::after{
     content:"";position:absolute;left:0;right:0;bottom:0;height:56px;
-    background:linear-gradient(180deg, rgba(10,13,23,0), #0a0d17 65%);
+    background:linear-gradient(180deg, rgba(21,26,51,0), #151a33 70%); /* verso il bg del balloon */
     pointer-events:none;border-bottom-left-radius:14px;border-bottom-right-radius:14px;
   }
-  /* toggle SOTTO al messaggio (e non a destra) */
-  .sdw-tools{display:block;margin-top:8px;position:static !important;text-align:left}
+  /* toggle SOTTO al messaggio */
+  .sdw-tools{display:block;margin-top:8px;text-align:left}
   .sdw-toggle{background:transparent;border:0;color:#9dc1ff;text-decoration:underline;cursor:pointer;padding:0;font-weight:700}
   /* quick replies (pallini) – dentro al balloon di benvenuto */
   .sdw-quick{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -77,7 +77,7 @@
     bubble.id = 'sdw-bubble';
     bubble.type = 'button';
     bubble.textContent = '🤖 Assistente AI';
-    bubble.onclick = () => open(); // mostra benvenuto se vuota
+    bubble.onclick = () => open();
     document.body.appendChild(bubble);
     bubble.style.display = 'inline-flex';
 
@@ -127,12 +127,18 @@
     return row;
   }
 
+  // Mostra "Leggi tutto" se testo lungo (altezza o caratteri / numero di bullet)
   function applyCollapsible(row, resetTop){
     if (!row || row.__collapsibleApplied) return;
     const msg = row.querySelector('.sdw-msg');
     if (!msg) return;
+
     requestAnimationFrame(() => {
-      if (msg.scrollHeight <= 220) return;
+      const longByHeight = msg.scrollHeight > 200;
+      const longByText   = (msg.innerText || '').trim().length > 260;
+      const longByBullets= (msg.innerHTML.match(/<li/gi)||[]).length >= 4;
+      if (!(longByHeight || longByText || longByBullets)) return;
+
       row.classList.add('sdw-collapsed');
       const tools = document.createElement('div');
       tools.className = 'sdw-tools';
@@ -146,8 +152,7 @@
         if (collapsed) body.scrollTop = row.offsetTop - 8;
       };
       tools.appendChild(tgl);
-      /* SOTTO al testo, DENTRO il balloon */
-      msg.appendChild(tools);
+      msg.appendChild(tools);     // SOTTO al testo, DENTRO il balloon
       row.__collapsibleApplied = true;
       if (resetTop) body.scrollTop = row.offsetTop - 8;
     });
@@ -158,7 +163,6 @@
     const row = addRow('ai', toHTML(
 `Ciao! 👋 Per darti un’analisi precisa dovresti **compilare il simulatore** e premere **Calcola la tua crescita**.
 Sono qui per qualsiasi dubbio su KPI, budget, ROAS o strategia.`));
-    // quick replies — dentro al balloon
     const msg = row.querySelector('.sdw-msg');
     const qr = document.createElement('div'); qr.className = 'sdw-quick';
     ['Cos’è Suite Digitale?','Perché scegliere Suite Digitale?','Come prenotare la consulenza gratuita?','Come calcolate i KPI nel simulatore?']
