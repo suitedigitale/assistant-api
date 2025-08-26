@@ -1,180 +1,106 @@
-/* public/sd-triggers.js — apre la chat al click su "Calcola la tua crescita" e legge i KPI dal DOM.
-   Supporta anche SD_KPI via postMessage. */
-(function(){
-  let wired = false;
+/* public/sd-triggers.js — apre la chat al calcolo e invia i KPI reali letti dal simulatore */
+(function () {
+  // ====== Selettori del simulatore ======
+  const BTN_CALCOLA = '#calcolaBtn';
 
-  // ---------------------------
-  // 1) postMessage (se presente)
-  // ---------------------------
-  window.addEventListener('message', function(ev){
-    const d = ev && ev.data;
-    if (!d || d.type !== 'SD_KPI') return;
-    const kpi = d.payload || {};
-    const note = d.context ? JSON.stringify(d.context) : '';
-    runAnalysis(kpi, note);
-  }, false);
+  // Mappa ID → nome campo che mandiamo all’assistente
+  const KPI_MAP = {
+    revenue:            '#fatturatoKPI',            // Fatturato stimato
+    budget:             '#budgetKPI',               // Budget ADV mensile
+    canone:             '#canoneSuiteDigitaleKPI',  // Canone Suite Digitale
+    roi:                '#roiKPI',                  // ROI previsionale (%)
+    roas:               '#roasKPI',                 // ROAS stimato (x)
+    profit:             '#utilePerditaKPI',         // Utile/Perdita mensile
+    cpl:                '#cplKPI',                  // CPL stimato
+    cpa:                '#cpaKPI',                  // CPA stimato
+    lead:               '#leadKPI',                 // Lead stimati
+    appointments:       '#appuntamentiKPI',         // Appuntamenti di vendita
+    convLeadApp:        '#convLeadAppKPI',          // Conv. Lead/Appuntamenti (%)
+    convAppCliente:     '#convAppClienteKPI'        // Conv. Appunt./Clienti (%)
+  };
 
-  // --------------------------------------------
-  // 2) Fallback: intercetta "Calcola la tua crescita"
-  // --------------------------------------------
-  function textContains(el, txt){
-    return el && typeof el.innerText==='string' && el.innerText.toLowerCase().includes(txt.toLowerCase());
-  }
-
-  function findCalcButtons(){
-    const all = Array.from(document.querySelectorAll('button, a, [role="button"]'));
-    return all.filter(el => textContains(el,'calcola la tua crescita'));
-  }
-
-  function onceWireCalc(){
-    if (wired) return;
-    const btns = findCalcButtons();
-    if (!btns.length) { setTimeout(onceWireCalc, 600); return; }
-    wired = true;
-    btns.forEach(b=>{
-      if (b.__sdw) return;
-      b.__sdw = 1;
-      b.addEventListener('click', () => {
-        // aspetta che i risultati si aggiornino
-        setTimeout(()=> {
-          const kpi = scrapeKPIFromDOM();
-          runAnalysis(kpi, 'da pulsante "Calcola la tua crescita"');
-        }, 700);
-      });
-    });
-    // nel caso compaiano nuovi pulsanti (SPA)
-    const mo = new MutationObserver(()=> {
-      findCalcButtons().forEach(b=>{
-        if (b.__sdw) return;
-        b.__sdw = 1;
-        b.addEventListener('click', () => {
-          setTimeout(()=> {
-            const kpi = scrapeKPIFromDOM();
-            runAnalysis(kpi, 'da pulsante "Calcola la tua crescita"');
-          }, 700);
-        });
-      });
-    });
-    mo.observe(document.body, {childList:true, subtree:true});
-  }
-
-  // --------------------------------------------
-  // 3) Scraping KPI
-  // --------------------------------------------
-  const nrm = s => (s||'').replace(/\s+/g,' ').trim();
-
-  function pickNumberFrom(el){
+  // ====== Helpers ======
+  // Prende un numero da dataset.target se c’è; altrimenti dal testo (toglie € . , spazi)
+  function readNumber(sel) {
+    const el = document.querySelector(sel);
     if (!el) return null;
-    const t = el.innerText || '';
-    // numero con € o migliaia, virgole/punti italiani
-    const m = t.match(/-?\s*€?\s*[\d\.\s]+(?:,\d+)?| -?\d+(?:,\d+)?x| -?\d+(?:,\d+)?%/g);
-    if (!m) return null;
-    return m[0];
-  }
-
-  function parseCurrency(str){
-    if (!str) return null;
-    let s = (''+str).replace(/[^\d,\.\-]/g,'');
-    // IT: separatore decimale spesso la virgola
-    if (s.indexOf(',')>-1 && s.indexOf('.')>-1){
-      // rimuovi punti migliaia
-      s = s.replace(/\./g,'').replace(',','.');
-    } else if (s.indexOf(',')>-1){
-      s = s.replace(',','.');
+    if (el.dataset && el.dataset.target != null) {
+      const v = parseFloat(String(el.dataset.target).replace(',', '.'));
+      if (!Number.isNaN(v)) return v;
     }
-    const v = parseFloat(s);
-    return isNaN(v) ? null : v;
+    let raw = (el.textContent || '').trim();
+    raw = raw.replace(/[^\d,.\-]/g, '').replace(/\./g, '').replace(',', '.'); // “1.234,56” → “1234.56”
+    const num = parseFloat(raw);
+    return Number.isFinite(num) ? num : null;
   }
 
-  function parsePercent(str){
-    if (!str) return null;
-    let s = (''+str).replace('%','').replace(/\./g,'').replace(',','.');
-    const v = parseFloat(s);
-    return isNaN(v) ? null : v;
-  }
-
-  function parseRatio(str){
-    if (!str) return null;
-    let s = (''+str).toLowerCase().replace('x','').replace(/\./g,'').replace(',','.');
-    const v = parseFloat(s);
-    return isNaN(v) ? null : v;
-  }
-
-  function findByLabel(label){
-    const nodes = Array.from(document.querySelectorAll('div,span,p,li,h1,h2,h3,h4'));
-    const lab = nodes.find(n => nrm(n.innerText).toLowerCase().includes(label.toLowerCase()));
-    if (!lab) return null;
-
-    // cerca numero nel nodo stesso o nei fratelli/parent
-    const candidates = [
-      lab,
-      lab.nextElementSibling,
-      lab.parentElement,
-      lab.parentElement && lab.parentElement.nextElementSibling
-    ].filter(Boolean);
-
-    for (const c of candidates){
-      const raw = pickNumberFrom(c);
-      if (raw) return raw;
+  // Legge tutti i KPI disponibili
+  function collectKPI() {
+    const k = {};
+    for (const [key, sel] of Object.entries(KPI_MAP)) {
+      const v = readNumber(sel);
+      if (v != null) k[key] = v;
     }
-    // tentativo allargato: tutti i discendenti
-    const deep = Array.from((lab.parentElement||lab).querySelectorAll('*'))
-      .map(pickNumberFrom).find(Boolean);
-    return deep || null;
+    // pulizia: non mandare CPL/CPA se mancano o sono 0
+    if (!(k.cpl > 0)) delete k.cpl;
+    if (!(k.cpa > 0)) delete k.cpa;
+    return k;
   }
 
-  function scrapeKPIFromDOM(){
-    // mapping etichette -> parser
-    const map = {
-      revenue: ['Fatturato stimato', parseCurrency],
-      budget:  ['Budget ADV mensile', parseCurrency],
-      roi:     ['ROI previsionale',   parsePercent],
-      roas:    ['ROAS stimato',       parseRatio],
-      cpl:     ['CPL stimato',        parseCurrency],
-      cpa:     ['CPA stimato',        parseCurrency]
+  // Contesto utile all’AI (per parlare al condizionale e “settoriale”)
+  function collectContext() {
+    const getVal = (q) => (document.querySelector(q) || {}).value || '';
+    const toInt  = (q) => parseInt((document.querySelector(q) || {}).value || '0', 10) || 0;
+    return {
+      tipo: getVal('#tipoBusiness'),         // B2B / B2C
+      settore: getVal('#settore'),
+      funnel: toInt('#funnel'),
+      clienti_mensili: toInt('#clienti'),
+      mol_percent: toInt('#mol'),
+      scontrino_index: toInt('#scontrino')
     };
+  }
 
-    const out = {};
-    Object.keys(map).forEach(key=>{
-      const [label, parser] = map[key];
-      const raw = findByLabel(label);
-      const val = parser(raw);
-      if (val!=null) out[key] = val;
+  // Aspetta che il simulatore abbia impostato i dataset.target (dopo il click)
+  function waitKPIReady(timeoutMs = 2500) {
+    const started = Date.now();
+    return new Promise((resolve) => {
+      (function tick() {
+        const ok =
+          (document.querySelector('#fatturatoKPI')?.dataset?.target != null) ||
+          (document.querySelector('#result') && document.querySelector('#result').style.display === 'block');
+        if (ok) return resolve(true);
+        if (Date.now() - started > timeoutMs) return resolve(false);
+        requestAnimationFrame(tick);
+      })();
     });
-
-    // Utile/Perdita mensile (gestisce segno)
-    let profitRaw = findByLabel('Perdita mensile');
-    let profit = parseCurrency(profitRaw);
-    if (profit!=null){ out.profit = -Math.abs(profit); }
-    else {
-      profitRaw = findByLabel('Utile mensile');
-      profit = parseCurrency(profitRaw);
-      if (profit!=null) out.profit = Math.abs(profit);
-    }
-
-    return out;
   }
 
-  // --------------------------------------------
-  // 4) Avvio analisi
-  // --------------------------------------------
-  function runAnalysis(kpi, note){
-    if (!window.SuiteAssistantChat || typeof window.SuiteAssistantChat.analyseKPIsSilently!=='function'){
-      // chat non pronta? ritenta
-      return setTimeout(()=>runAnalysis(kpi,note), 250);
-    }
-    // non avviare se non abbiamo almeno ROI o ROAS o Budget/Fatturato
-    const hasAny = kpi && (kpi.roi!=null || kpi.roas!=null || kpi.budget!=null || kpi.revenue!=null || kpi.profit!=null);
-    if (!hasAny) return;
-    window.SuiteAssistantChat.analyseKPIsSilently(kpi, note||'');
+  async function onCalcolaClick() {
+    // diamo tempo al simulatore di calcolare/aggiornare i dataset
+    setTimeout(async () => {
+      await waitKPIReady(2500);
+      const kpi = collectKPI();
+      const ctx = collectContext();
+
+      if (!window.SuiteAssistantChat) return;
+      // Apri la chat (resta in silenzioso: l’utente non vede un input “finto”)
+      window.SuiteAssistantChat.open({ autostart: false });
+      window.SuiteAssistantChat.analyseKPIsSilently(kpi, JSON.stringify(ctx));
+    }, 350);
   }
 
-  // bootstrap
-  if (document.readyState==='loading') {
-    document.addEventListener('DOMContentLoaded', onceWireCalc);
+  function bind() {
+    const btn = document.querySelector(BTN_CALCOLA);
+    if (btn && !btn.__sd_bind) {
+      btn.__sd_bind = 1;
+      btn.addEventListener('click', onCalcolaClick);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
   } else {
-    onceWireCalc();
+    bind();
   }
-
-  console.log('[SD] sd-triggers.js pronto (click + scraping KPI)');
 })();
