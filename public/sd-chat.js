@@ -5,54 +5,116 @@
   const CTA_URL  = 'https://www.suitedigitale.it/candidatura/';
 
   // ====== CSS ======
-  (function injectCSS(){
-    if (document.getElementById('sdw-style')) return;
-    const css = `
-    :root { --sd-bg:#0f1220; --sd-panel:#15172a; --sd-accent:#7b5cff; --sd-ring:rgba(123,92,255,.35);}
-    #sdw-root{position:fixed;right:24px;bottom:24px;z-index:999999;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;width:420px;max-width:calc(100vw - 32px);display:none}
-    #sdw-root.sdw-visible{display:block}
-    #sdw-panel{background:#0c0f1a;color:#eef1ff;border:1px solid rgba(255,255,255,.08);border-radius:16px;overflow:hidden;box-shadow:0 22px 60px rgba(0,0,0,.45)}
-    #sdw-head{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:#0f1220}
-    #sdw-title{display:flex;align-items:center;gap:10px;font-weight:800}
-    #sdw-title .ava{font-size:20px}
-    #sdw-title .dot{width:8px;height:8px;background:#22c55e;border-radius:999px;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
-    #sdw-close{background:transparent;border:0;color:#e6e8ee;opacity:.8;cursor:pointer;font-size:18px}
-    #sdw-body{height:400px;max-height:66vh;overflow:auto;padding:14px 12px;background:#0a0d17;scrollbar-width:thin}
-    .sdw-row{display:flex;margin:10px 0}
-    .sdw-msg{max-width:86%;padding:12px 14px;border-radius:14px;line-height:1.45;position:relative}
-    .sdw-msg h4{margin:.2rem 0 .45rem 0;font-size:15px;font-weight:800}
-    .ai{justify-content:flex-start}
-    .ai .sdw-msg{background:#151a33;border:1px solid rgba(255,255,255,.06)}
-    .me{justify-content:flex-end}
-    .me .sdw-msg{background:#1b2250;border:1px solid #9255FF}
-    .chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px 0}
-    .chip{background:#101432;border:1px solid rgba(255,255,255,.08);padding:10px 12px;border-radius:999px;cursor:pointer;font-size:14px;color:#e5e9ff}
-    .chip:hover{background:#141a3c}
-    #sdw-foot{display:flex;gap:8px;padding:10px;border-top:1px solid rgba(255,255,255,.06);background:#0f1220}
-    #sdw-input{flex:1;background:#0c1026;border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#e6e8ee;padding:10px;outline:none}
-    #sdw-input:focus{border-color:var(--sd-accent);box-shadow:0 0 0 3px var(--sd-ring)}
-    #sdw-send{background:#7b5cff;border:0;color:#fff;border-radius:10px;padding:0 12px;min-width:68px;cursor:pointer}
-    #sdw-cta{position:sticky;bottom:0;margin:8px 0;background:linear-gradient(90deg,#FD3F3F 0%,#8930BB 100%);color:#fff;border:0;border-radius:12px;padding:12px 14px;text-align:center;font-weight:800;cursor:pointer}
-    #sdw-cta:hover{filter:brightness(1.02)}
-    #sdw-bubble{position:fixed;right:22px;bottom:22px;background:#7b5cff;color:#fff;border:0;border-radius:999px;padding:12px 16px;box-shadow:0 10px 26px rgba(0,0,0,.35);cursor:pointer;display:none;z-index:999999}
-    /* Link bianchi */
-    .sdw-msg a, a.sdw-link { color:#ffffff !important; text-decoration:underline; }
-    .sdw-msg a:hover { opacity:.9; }
-    /* typing */
-    .typing{display:inline-flex;align-items:center;gap:6px}
-    .dots span{display:inline-block;width:6px;height:6px;border-radius:999px;background:#cbd5ff;margin-left:3px;animation:blink 1.3s infinite}
-    .dots span:nth-child(2){animation-delay:.15s}
-    .dots span:nth-child(3){animation-delay:.3s}
-    @keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
-    /* clamp */
-    .clamp-wrap{position:relative}
-    .clamp-inner{display:block;overflow:hidden}
-    .fade-bottom{position:absolute;left:0;right:0;bottom:0;height:48px;background:linear-gradient(180deg,rgba(21,26,51,0) 0%, rgba(21,26,51,1) 70%)}
-    .clamp-actions{margin-top:6px}
-    .clamp-actions a{font-size:13px;cursor:pointer;text-decoration:underline;color:#cfe1ff}
-    `;
-    const st = document.createElement('style'); st.id = 'sdw-style'; st.textContent = css; document.head.appendChild(st);
-  })();
+(function injectCSS(){
+  if (document.getElementById('sdw-style')) return;
+  const css = `
+  :root { --sd-bg:#0f1220; --sd-panel:#15172a; --sd-accent:#7b5cff; --sd-ring:rgba(123,92,255,.35); }
+
+  /* posizionamento con safe-area */
+  #sdw-root{
+    position:fixed;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    z-index:999999;
+    font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
+    width:360px;                 /* più stretto */
+    max-width: min(92vw, 380px); /* non oltre schermo */
+    display:none;
+  }
+  #sdw-root.sdw-visible{display:block}
+
+  /* pannello flessibile: non supera l’altezza dello schermo */
+  #sdw-panel{
+    background:#0c0f1a;color:#eef1ff;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; overflow:hidden;
+    box-shadow:0 22px 60px rgba(0,0,0,.45);
+    display:flex; flex-direction:column;
+    max-height: calc(86dvh - 8px);   /* limite dinamico */
+  }
+
+  #sdw-head{
+    display:flex; align-items:center; gap:8px; justify-content:space-between;
+    padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.06); background:#0f1220;
+    flex:0 0 auto;
+  }
+  #sdw-title{display:flex; align-items:center; gap:10px; font-weight:800}
+  #sdw-title .ava{font-size:20px}
+  #sdw-title .dot{width:8px;height:8px;background:#22c55e;border-radius:999px;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+  #sdw-close{background:transparent;border:0;color:#e6e8ee;opacity:.8;cursor:pointer;font-size:18px}
+
+  /* SOLO il body scorre; altezza auto gestita dal pannello */
+  #sdw-body{
+    flex:1 1 auto;
+    overflow:auto;
+    padding:14px 12px;
+    background:#0a0d17;
+    scrollbar-width:thin;
+  }
+
+  .sdw-row{display:flex;margin:10px 0}
+  .sdw-msg{max-width:86%;padding:12px 14px;border-radius:14px;line-height:1.45;position:relative}
+  .sdw-msg h4{margin:.2rem 0 .45rem 0;font-size:15px;font-weight:800}
+  .ai{justify-content:flex-start}
+  .ai .sdw-msg{background:#151a33;border:1px solid rgba(255,255,255,.06)}
+  .me{justify-content:flex-end}
+  .me .sdw-msg{background:#1b2250;border:1px solid #9255FF}
+
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 12px 0 12px;flex:0 0 auto}
+  .chip{background:#101432;border:1px solid rgba(255,255,255,.08);padding:10px 12px;border-radius:999px;cursor:pointer;font-size:14px;color:#e5e9ff}
+  .chip:hover{background:#141a3c}
+
+  #sdw-foot{
+    display:flex; gap:8px; padding:10px 12px;
+    border-top:1px solid rgba(255,255,255,.06); background:#0f1220;
+    flex:0 0 auto;
+  }
+  #sdw-input{flex:1;background:#0c1026;border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#e6e8ee;padding:10px;outline:none}
+  #sdw-input:focus{border-color:var(--sd-accent);box-shadow:0 0 0 3px var(--sd-ring)}
+  #sdw-send{background:#7b5cff;border:0;color:#fff;border-radius:10px;padding:0 12px;min-width:68px;cursor:pointer}
+
+  #sdw-cta{
+    position:sticky; bottom:0; margin:8px 12px;
+    background:linear-gradient(90deg,#FD3F3F 0%,#8930BB 100%);
+    color:#fff; border:0; border-radius:12px; padding:12px 14px;
+    text-align:center; font-weight:800; cursor:pointer
+  }
+  #sdw-cta:hover{filter:brightness(1.02)}
+
+  #sdw-bubble{
+    position:fixed; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
+    background:#7b5cff;color:#fff;border:0;border-radius:999px;padding:12px 16px;box-shadow:0 10px 26px rgba(0,0,0,.35);cursor:pointer;display:none;z-index:999999
+  }
+
+  /* Link bianchi */
+  .sdw-msg a, a.sdw-link { color:#ffffff !important; text-decoration:underline; }
+  .sdw-msg a:hover { opacity:.9; }
+
+  /* typing */
+  .typing{display:inline-flex;align-items:center;gap:6px}
+  .dots span{display:inline-block;width:6px;height:6px;border-radius:999px;background:#cbd5ff;margin-left:3px;animation:blink 1.3s infinite}
+  .dots span:nth-child(2){animation-delay:.15s}
+  .dots span:nth-child(3){animation-delay:.3s}
+  @keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+
+  /* clamp */
+  .clamp-wrap{position:relative}
+  .clamp-inner{display:block;overflow:hidden}
+  .fade-bottom{position:absolute;left:0;right:0;bottom:0;height:48px;background:linear-gradient(180deg,rgba(21,26,51,0) 0%, rgba(21,26,51,1) 70%)}
+  .clamp-actions{margin-top:6px}
+  .clamp-actions a{font-size:13px;cursor:pointer;text-decoration:underline;color:#cfe1ff}
+
+  /* ulteriori strette per schermi piccoli in altezza */
+  @media (max-height: 740px){
+    #sdw-panel{max-height: calc(82dvh - 8px);}
+  }
+  @media (max-width: 420px){
+    #sdw-root{width: 92vw;}
+  }
+  `;
+  const st=document.createElement('style'); st.id='sdw-style'; st.textContent=css; document.head.appendChild(st);
+})();
+
 
   // ====== tiny helpers ======
   const toHTML = (txt) => {
