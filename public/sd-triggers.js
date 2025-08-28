@@ -1,50 +1,52 @@
-/* public/sd-triggers.js — apre la chat su “Calcola” e invia KPI reali (ID dal simulatore) */
-(function(){
-  // Bottone “Calcola la tua crescita”
+/* public/sd-triggers.js — apre la chat al calcolo e invia i KPI reali letti dal simulatore */
+(function () {
+  // ====== Selettori del simulatore ======
   const BTN_CALCOLA = '#calcolaBtn';
 
-  // Mappa **ID reali** del tuo simulatore → nome campo
+  // Mappa ID → nome campo che mandiamo all’assistente
   const KPI_MAP = {
-    revenue:        '#fatturatoKPI',            // Fatturato stimato (numero)
-    budget:         '#budgetKPI',               // Budget ADV mensile
-    canone:         '#canoneSuiteDigitaleKPI',  // Canone Suite Digitale
-    roi:            '#roiKPI',                  // ROI previsionale (%, senza simbolo)
-    roas:           '#roasKPI',                 // ROAS (x)
-    profit:         '#utilePerditaKPI',         // Utile/Perdita mensile (negativo se perdita)
-    cpl:            '#cplKPI',                  // CPL
-    cpa:            '#cpaKPI',                  // CPA
-    lead:           '#leadKPI',                 // Lead/mese
-    appointments:   '#appuntamentiKPI',         // Appuntamenti
-    convLeadApp:    '#convLeadAppKPI',          // Conv. Lead→App (%)
-    convAppCliente: '#convAppClienteKPI'        // Conv. App→Cliente (%)
+    revenue:            '#fatturatoKPI',            // Fatturato stimato
+    budget:             '#budgetKPI',               // Budget ADV mensile
+    canone:             '#canoneSuiteDigitaleKPI',  // Canone Suite Digitale
+    roi:                '#roiKPI',                  // ROI previsionale (%)
+    roas:               '#roasKPI',                 // ROAS stimato (x)
+    profit:             '#utilePerditaKPI',         // Utile/Perdita mensile
+    cpl:                '#cplKPI',                  // CPL stimato
+    cpa:                '#cpaKPI',                  // CPA stimato
+    lead:               '#leadKPI',                 // Lead stimati
+    appointments:       '#appuntamentiKPI',         // Appuntamenti di vendita
+    convLeadApp:        '#convLeadAppKPI',          // Conv. Lead/Appuntamenti (%)
+    convAppCliente:     '#convAppClienteKPI'        // Conv. Appunt./Clienti (%)
   };
 
-  // Normalizza numeri da “€ 1.234,56” / “-12,3%” / “0,2x”
-  function parseNum(txt){
-    if (!txt) return null;
-    txt = String(txt).trim();
-    if (/%/.test(txt)) {
-      const v = parseFloat(txt.replace('%','').replace(',','.'));
-      return isNaN(v) ? null : v;
-    }
-    if (/x$/i.test(txt)) {
-      const v = parseFloat(txt.replace('x','').replace(',','.'));
-      return isNaN(v) ? null : v;
-    }
-    const clean = txt.replace(/[^\d,.\-]/g,'').replace(/\./g,'').replace(',', '.');
-    const n = parseFloat(clean);
-    return Number.isFinite(n) ? n : null;
-  }
-
+  // ====== Helpers ======
   function readNumber(sel) {
     const el = document.querySelector(sel);
     if (!el) return null;
-    // molti KPI sono animati con data-target
+
+    // 1) dataset.target (se presente) ha priorità
     if (el.dataset && el.dataset.target != null) {
-      const v = parseNum(el.dataset.target);
-      if (v != null) return v;
+      const v = parseFloat(String(el.dataset.target).replace(',', '.'));
+      return Number.isFinite(v) ? v : null;
     }
-    return parseNum(el.textContent || '');
+
+    // 2) estrai dal testo visibile (gestione migliaia/decimali/percentuali/‘x’)
+    let raw = (el.textContent || '').trim();
+    if (!raw) return null;
+
+    // tieni solo cifre, separatori e segno
+    let cleaned = raw.replace(/[^\d.,\-]/g, '');
+
+    const hasComma = cleaned.includes(',');
+    const hasDot   = cleaned.includes('.');
+
+    if (hasComma && hasDot) {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.'); // "1.234,56" -> "1234.56"
+    } else if (hasComma) {
+      cleaned = cleaned.replace(',', '.'); // "92,59" -> "92.59"
+    }
+    const num = parseFloat(cleaned);
+    return Number.isFinite(num) ? num : null;
   }
 
   function collectKPI() {
@@ -53,7 +55,7 @@
       const v = readNumber(sel);
       if (v != null) k[key] = v;
     }
-    // elimina zero “falsi positivi”
+    // CPL/CPA opzionali: omettili se assenti o 0
     if (!(k.cpl > 0)) delete k.cpl;
     if (!(k.cpa > 0)) delete k.cpa;
     return k;
@@ -63,7 +65,7 @@
     const getVal = (q) => (document.querySelector(q) || {}).value || '';
     const toInt  = (q) => parseInt((document.querySelector(q) || {}).value || '0', 10) || 0;
     return {
-      tipo: getVal('#tipoBusiness'),     // B2B / B2C
+      tipo: getVal('#tipoBusiness'),         // B2B / B2C
       settore: getVal('#settore'),
       funnel: toInt('#funnel'),
       clienti_mensili: toInt('#clienti'),
@@ -72,7 +74,6 @@
     };
   }
 
-  // attende che i KPI siano visualizzati/animati
   function waitKPIReady(timeoutMs = 2500) {
     const started = Date.now();
     return new Promise((resolve) => {
@@ -94,9 +95,9 @@
       const ctx = collectContext();
 
       if (!window.SuiteAssistantChat) return;
-      window.SuiteAssistantChat.open({ autostart: false }); // apre pannello
+      window.SuiteAssistantChat.open({ autostart: false });
       window.SuiteAssistantChat.analyseKPIsSilently(kpi, JSON.stringify(ctx));
-    }, 300);
+    }, 350);
   }
 
   function bind() {
@@ -107,16 +108,11 @@
     }
   }
 
-  // non aprire mai da soli: solo al click “Calcola”
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bind);
   } else {
     bind();
   }
-
-  // in caso di SPA/aggiornamenti dinamici
-  const mo = new MutationObserver(bind);
-  mo.observe(document.documentElement, {childList:true, subtree:true});
 
   console.log('[SD] sd-triggers.js pronto');
 })();
